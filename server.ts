@@ -1426,12 +1426,16 @@ app.post('/api/roblox/scheduler/trigger', async (_req, res) => {
 
 // API: External Cron endpoint (For GitHub Actions, cron-job.org, Vercel cron, UptimeRobot)
 app.all(['/api/roblox/cron', '/api/cron/roblox'], async (req, res) => {
-  console.log(`[RobloxCron] Received external cron trigger from ${req.ip || 'external'}`);
+  const userAgent = (req.headers['user-agent'] || '').toLowerCase();
+  const isGitHub = userAgent.includes('github') || req.body?.source === 'github-actions' || req.query?.source === 'github';
+  const triggerSource = isGitHub ? 'github-actions' : (req.query.source as string || 'external-cron');
+  console.log(`[RobloxCron] Received external cron trigger from ${req.ip || 'external'} (Source: ${triggerSource})`);
   lastRobloxDispatchTime = Date.now();
-  const result = await executeRobloxLimitedAlert('external-cron');
+  const result = await executeRobloxLimitedAlert(triggerSource);
   res.json({
     success: result.success,
     triggeredAt: new Date().toISOString(),
+    source: triggerSource,
     result,
   });
 });

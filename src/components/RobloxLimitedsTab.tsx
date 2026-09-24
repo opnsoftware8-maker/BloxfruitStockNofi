@@ -26,6 +26,7 @@ import {
   Globe,
   Code2,
   BellRing,
+  GitBranch,
 } from 'lucide-react';
 
 interface RobloxSchedulerLog {
@@ -88,6 +89,7 @@ export const RobloxLimitedsTab: React.FC = () => {
   const [isTriggeringAuto, setIsTriggeringAuto] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
+  const [guideTab, setGuideTab] = useState<'github' | 'server' | 'cronjob'>('github');
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   // Fetch Items
@@ -378,11 +380,25 @@ export const RobloxLimitedsTab: React.FC = () => {
               </button>
 
               <button
-                onClick={() => setShowGuideModal(true)}
+                onClick={() => {
+                  setGuideTab('github');
+                  setShowGuideModal(true);
+                }}
+                className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-purple-600/30 hover:bg-purple-600/45 text-purple-200 font-bold text-xs border border-purple-500/50 shadow-lg shadow-purple-600/20 active:scale-95 transition-all cursor-pointer"
+              >
+                <GitBranch className="w-4 h-4 text-purple-300" />
+                <span>GitHub Actions (ฟรี 24 ชม.)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setGuideTab('server');
+                  setShowGuideModal(true);
+                }}
                 className="inline-flex items-center justify-center gap-2 px-3.5 py-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-semibold border border-amber-500/40 transition-colors cursor-pointer"
               >
                 <Info className="w-4 h-4 text-amber-400" />
-                <span>วิธีรันฟรี 24 ชม.</span>
+                <span>วิธีรัน 24 ชม. ทั้งหมด</span>
               </button>
             </div>
           </div>
@@ -858,89 +874,292 @@ export const RobloxLimitedsTab: React.FC = () => {
       {/* Guide Modal: How Automation Works 24/7 */}
       {showGuideModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm animate-fadeIn">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-2xl p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-3xl p-6 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            {/* Header */}
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div className="flex items-center gap-2">
-                <Globe className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-base font-bold text-white">
-                  💡 แล้วมันจะทำงานอัตโนมัติให้ได้ยังไง? (3 วิธีรันฟรี 24 ชม.)
-                </h3>
+                <GitBranch className="w-5 h-5 text-purple-400" />
+                <div>
+                  <h3 className="text-base font-bold text-white">
+                    🤖 วิธีตั้งค่าบอทอัตโนมัติ 24 ชม. (ใช้ GitHub Actions แทน cron-job ได้ 100%)
+                  </h3>
+                  <p className="text-[11px] text-zinc-400">
+                    ไม่ต้องสมัครเว็บอื่นให้ยุ่งยาก รันฟรีบนคลาวด์ของ GitHub ปิดคอมแล้วก็ยังแจ้งเตือนตลอดเวลา
+                  </p>
+                </div>
               </div>
               <button
                 onClick={() => setShowGuideModal(false)}
-                className="text-zinc-400 hover:text-white p-1 cursor-pointer"
+                className="text-zinc-400 hover:text-white p-1 cursor-pointer rounded-lg hover:bg-zinc-800"
               >
                 ✕
               </button>
             </div>
 
-            <div className="space-y-4 text-xs text-zinc-300 leading-relaxed">
-              <div className="p-4 rounded-xl bg-sky-950/30 border border-sky-500/30 space-y-2">
-                <h4 className="font-bold text-white text-sm flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-sky-400" />
-                  วิธีที่ 1: รันในตัวเซิร์ฟเวอร์นี้ทันที (ง่ายที่สุด - 1 คลิก)
-                </h4>
-                <p>
-                  ระบบนี้มี **Node.js Background Cron** ในตัว เพียงกดปุ่มสีเขียว **"เปิดบอททำงานอัตโนมัติ"** บนหน้าเว็บนี้
-                  เซิร์ฟเวอร์คลาวด์จะคอยดึงสต็อกและยิงแจ้งเตือนเข้า Discord ทุกๆ 15-30 นาทีให้อัตโนมัติทันที
-                </p>
-              </div>
+            {/* Tab Selector */}
+            <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+              <button
+                type="button"
+                onClick={() => setGuideTab('github')}
+                className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
+                  guideTab === 'github'
+                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                    : 'bg-zinc-950 text-zinc-400 hover:text-zinc-200 border border-zinc-800'
+                }`}
+              >
+                <GitBranch className="w-3.5 h-3.5 text-purple-300" />
+                <span>🐙 GitHub Actions (แนะนำอันดับ 1)</span>
+              </button>
 
-              <div className="p-4 rounded-xl bg-emerald-950/30 border border-emerald-500/30 space-y-2">
-                <h4 className="font-bold text-white text-sm flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  วิธีที่ 2: ใช้ GitHub Actions รันฟรีบนคลาวด์ 24 ชม. (แนะนำที่สุด ไม่ต้องเปิดคอมเลย!)
-                </h4>
-                <p>
-                  GitHub มีบริการรันโค้ดฟรี 24 ชม. ไม่จำกัด ผมได้สร้างไฟล์ Workflow ไว้ให้เรียบร้อยแล้ว:
-                </p>
-                <div className="bg-zinc-950 p-2.5 rounded-lg border border-zinc-800 flex items-center justify-between font-mono text-[11px] text-zinc-300">
-                  <span>.github/workflows/roblox-auto-bot.yml</span>
-                  <button
-                    onClick={() =>
-                      copyToClipboard(
-                        `name: Roblox Auto Alert 24/7\non:\n  schedule:\n    - cron: '*/30 * * * *'\njobs:\n  alert:\n    runs-on: ubuntu-latest\n    steps:\n      - run: curl -X POST "${cronTriggerUrl}"`,
-                        'github'
-                      )
-                    }
-                    className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 font-sans cursor-pointer"
-                  >
-                    {copiedText === 'github' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedText === 'github' ? 'คัดลอกแล้ว' : 'คัดลอกโค้ด'}</span>
-                  </button>
-                </div>
-                <p className="text-[11px] text-zinc-400">
-                  เพียงนำโค้ดนี้ใส่ใน GitHub Repository ของคุณ ระบบจะรันอัตโนมัติทุก 30 นาทีฟรีตลอดชีพ
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setGuideTab('server')}
+                className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
+                  guideTab === 'server'
+                    ? 'bg-sky-600 text-white shadow-md shadow-sky-600/30'
+                    : 'bg-zinc-950 text-zinc-400 hover:text-zinc-200 border border-zinc-800'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5 text-sky-300" />
+                <span>⚡ ตัวเซิร์ฟเวอร์ในตัว (รันตรงนี้)</span>
+              </button>
 
-              <div className="p-4 rounded-xl bg-purple-950/30 border border-purple-500/30 space-y-2">
-                <h4 className="font-bold text-white text-sm flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-purple-400" />
-                  วิธีที่ 3: ใช้ Cron-job.org หรือ UptimeRobot ยิงปลุกอัตโนมัติ
-                </h4>
-                <p>
-                  นำลิงก์ Trigger URL นี้ไปแปะในเว็บฟรีอย่าง <strong>cron-job.org</strong> แล้วตั้งเวลายิงทุก 15 นาที:
-                </p>
-                <div className="bg-zinc-950 p-2.5 rounded-lg border border-zinc-800 flex items-center justify-between font-mono text-[11px] text-zinc-300">
-                  <span className="truncate pr-2">{cronTriggerUrl}</span>
-                  <button
-                    onClick={() => copyToClipboard(cronTriggerUrl, 'cronUrl')}
-                    className="text-purple-400 hover:text-purple-300 flex items-center gap-1 font-sans shrink-0 cursor-pointer"
-                  >
-                    {copiedText === 'cronUrl' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedText === 'cronUrl' ? 'คัดลอกแล้ว' : 'คัดลอก URL'}</span>
-                  </button>
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={() => setGuideTab('cronjob')}
+                className={`px-3.5 py-1.5 rounded-xl font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
+                  guideTab === 'cronjob'
+                    ? 'bg-zinc-700 text-white shadow-md'
+                    : 'bg-zinc-950 text-zinc-400 hover:text-zinc-200 border border-zinc-800'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5 text-zinc-400" />
+                <span>🌐 cron-job.org (ทางเลือกเสริม)</span>
+              </button>
             </div>
 
-            <div className="flex justify-end pt-3 border-t border-zinc-800">
+            {/* TAB CONTENT: GITHUB ACTIONS */}
+            {guideTab === 'github' && (
+              <div className="space-y-4 text-xs text-zinc-300 leading-relaxed">
+                <div className="p-4 rounded-xl bg-purple-950/30 border border-purple-500/30 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[10px] border border-emerald-500/30">
+                      ✓ ตอบคำถาม: ใช้แทนได้ 100% และดีกว่ามาก!
+                    </span>
+                    <span className="text-zinc-400 text-[11px]">
+                      ไม่ต้องสมัครเว็บแปลกๆ ฟรี 24 ชั่วโมง
+                    </span>
+                  </div>
+                  <p className="text-xs text-purple-200">
+                    GitHub Actions คือระบบ Automation ของ Microsoft/GitHub ที่มีเซิร์ฟเวอร์รันโค้ดให้อัตโนมัติตลอดเวลา
+                    สามารถตั้งเวลาให้ดึงราคา Roblox Limiteds แล้วยิงเข้า Discord ทุกๆ 15 นาที โดยที่คุณไม่ต้องเปิดคอมพิวเตอร์ทิ้งไว้เลยครับ
+                  </p>
+                </div>
+
+                {/* 3 Steps Guide */}
+                <div className="space-y-3">
+                  <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span>3 ขั้นตอนง่ายๆ ในการเริ่มใช้งาน:</span>
+                  </h4>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 space-y-1.5">
+                      <div className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 font-bold flex items-center justify-center text-xs">
+                        1
+                      </div>
+                      <div className="font-bold text-white">เปิด GitHub Repo</div>
+                      <p className="text-[11px] text-zinc-400">
+                        ไปที่ GitHub ของคุณ (หรือสร้าง New Repository ฟรี)
+                      </p>
+                    </div>
+
+                    <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 space-y-1.5">
+                      <div className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 font-bold flex items-center justify-center text-xs">
+                        2
+                      </div>
+                      <div className="font-bold text-white">สร้างไฟล์ Workflow</div>
+                      <p className="text-[11px] text-zinc-400">
+                        สร้างโฟลเดอร์ <code className="text-purple-300">.github/workflows/</code> และสร้างไฟล์ชื่อ <code className="text-purple-300">roblox-auto-bot.yml</code>
+                      </p>
+                    </div>
+
+                    <div className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 space-y-1.5">
+                      <div className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 font-bold flex items-center justify-center text-xs">
+                        3
+                      </div>
+                      <div className="font-bold text-white">วางโค้ด & รันอัตโนมัติ</div>
+                      <p className="text-[11px] text-zinc-400">
+                        ก๊อปปี้โค้ดด้านล่างไปวาง แล้วกด Commit เท่านี้บอทก็เริ่มทำงานอัตโนมัติทุก 15 นาทีทันที!
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Workflow Code Box */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-white flex items-center gap-1.5">
+                      <Code2 className="w-4 h-4 text-sky-400" />
+                      <span>โค้ดไฟล์ .github/workflows/roblox-auto-bot.yml</span>
+                    </span>
+                    <button
+                      onClick={() =>
+                        copyToClipboard(
+                          `name: Roblox Limiteds & Stock 24/7 Auto Alert (GitHub Actions)
+
+on:
+  schedule:
+    # Run automatically every 15 minutes (24/7 Free)
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Allows manual trigger directly from GitHub UI
+
+jobs:
+  roblox-stock-alert:
+    name: Fetch & Send Roblox Stock to Discord
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Roblox Auto Bot
+        run: |
+          echo "🚀 Triggering Roblox Limiteds Auto Bot at $(date)..."
+          curl -s -X POST "${cronTriggerUrl}" \\
+            -H "Content-Type: application/json" \\
+            -d '{"source": "github-actions"}'
+`,
+                          'workflowYaml'
+                        )
+                      }
+                      className="px-3 py-1 rounded-lg bg-purple-600/30 hover:bg-purple-600/50 text-purple-300 border border-purple-500/40 flex items-center gap-1 text-xs cursor-pointer font-bold"
+                    >
+                      {copiedText === 'workflowYaml' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedText === 'workflowYaml' ? 'คัดลอกแล้ว!' : 'คัดลอกโค้ด YAML'}</span>
+                    </button>
+                  </div>
+
+                  <pre className="bg-zinc-950 p-3 rounded-xl border border-zinc-800 font-mono text-[11px] text-purple-200 overflow-x-auto max-h-56 leading-relaxed">
+{`name: Roblox Limiteds & Stock 24/7 Auto Alert (GitHub Actions)
+
+on:
+  schedule:
+    # รันอัตโนมัติทุกๆ 15 นาทีตลอด 24 ชั่วโมง
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # ปุ่มกดรันด้วยมือใน GitHub Actions เพื่อทดสอบได้ทันที
+
+jobs:
+  roblox-stock-alert:
+    name: Fetch & Send Roblox Stock to Discord
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Roblox Auto Bot
+        run: |
+          echo "🚀 Triggering Roblox Limiteds Auto Bot at $(date)..."
+          curl -s -X POST "${cronTriggerUrl}" \\
+            -H "Content-Type: application/json" \\
+            -d '{"source": "github-actions"}'`}
+                  </pre>
+                </div>
+
+                {/* Standalone Script Option */}
+                <div className="bg-zinc-950 p-4 rounded-xl border border-zinc-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h5 className="font-bold text-white flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                        <span>ตัวเลือกเสริมพิเศษ: สคริปต์ Standalone (ไม่ต้องพึ่งเซิร์ฟเวอร์ใดๆ)</span>
+                      </h5>
+                      <p className="text-[11px] text-zinc-400">
+                        ในโปรเจกต์นี้มีไฟล์ <code className="text-amber-300">scripts/roblox-cron.mjs</code> ให้แล้ว ซึ่งสามารถรันผ่าน GitHub Actions ยิงตรงเข้า Discord Webhook ได้เลย 100% แม้เว็บนี้จะดับไป!
+                      </p>
+                    </div>
+                    <button
+                      onClick={() =>
+                        copyToClipboard(
+                          `node scripts/roblox-cron.mjs`,
+                          'standaloneCmd'
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center gap-1 text-[11px] cursor-pointer"
+                    >
+                      {copiedText === 'standaloneCmd' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      <span>คัดลอกคำสั่งรัน</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Test Trigger Button */}
+                <div className="flex items-center justify-between bg-zinc-950 p-3 rounded-xl border border-zinc-800">
+                  <div className="space-y-0.5">
+                    <span className="text-zinc-200 font-bold block">ทดสอบยิงดูข้อความจริงใน Discord ตอนนี้</span>
+                    <span className="text-zinc-400 text-[11px]">
+                      กดปุ่มนี้เพื่อส่งตัวอย่างข้อความลิมิเต็ด Roblox เข้า Discord ทันที
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleTriggerAutoTest}
+                    disabled={isTriggeringAuto}
+                    className="px-4 py-2 rounded-xl bg-[#5865F2] hover:bg-[#4752C4] text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-[#5865F2]/20 cursor-pointer shrink-0"
+                  >
+                    <Send className={`w-3.5 h-3.5 ${isTriggeringAuto ? 'animate-bounce' : ''}`} />
+                    <span>{isTriggeringAuto ? 'กำลังส่ง...' : 'ทดสอบยิงทันที'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* TAB CONTENT: SERVER BUILT-IN */}
+            {guideTab === 'server' && (
+              <div className="space-y-4 text-xs text-zinc-300 leading-relaxed">
+                <div className="p-4 rounded-xl bg-sky-950/30 border border-sky-500/30 space-y-2">
+                  <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-sky-400" />
+                    รันในตัวเซิร์ฟเวอร์นี้ (เปิดใช้งานได้ในคลิกเดียว)
+                  </h4>
+                  <p>
+                    ระบบนี้มี <strong>Node.js Interval Engine</strong> ทำงานอยู่เบื้องหลัง เพียงกดปุ่มสีเขียว <strong>"เปิดบอททำงานอัตโนมัติ"</strong> บนหน้าเว็บนี้
+                    เซิร์ฟเวอร์จะคอยดึงสต็อกและยิงแจ้งเตือนเข้า Discord ทุกๆ {scheduler.intervalMinutes} นาทีให้อัตโนมัติทันที
+                  </p>
+                  <p className="text-[11px] text-sky-200/80">
+                    💡 หมายเหตุ: หากไม่มีคนเข้าเว็บเลยเป็นเวลาหลายชั่วโมง เซิร์ฟเวอร์ Cloud Run อาจเข้าโหมดสแตนด์บายประหยัดพลังงาน แนะนำให้ใช้ GitHub Actions ร่วมด้วยเพื่อความเสถียรสูงสุดครับ
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* TAB CONTENT: CRON-JOB.ORG */}
+            {guideTab === 'cronjob' && (
+              <div className="space-y-4 text-xs text-zinc-300 leading-relaxed">
+                <div className="p-4 rounded-xl bg-zinc-950 border border-zinc-800 space-y-2">
+                  <h4 className="font-bold text-white text-sm flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-amber-400" />
+                    ใช้ cron-job.org หรือ UptimeRobot ยิงปลุกอัตโนมัติ
+                  </h4>
+                  <p>
+                    ถ้าต้องการใช้ cron-job.org ให้นำ URL ด้านล่างนี้ไปกรอกในช่อง URL to call แล้วตั้งเวลายิงทุกๆ 15 นาที:
+                  </p>
+                  <div className="bg-zinc-900 p-2.5 rounded-lg border border-zinc-800 flex items-center justify-between font-mono text-[11px] text-zinc-300">
+                    <span className="truncate pr-2">{cronTriggerUrl}</span>
+                    <button
+                      onClick={() => copyToClipboard(cronTriggerUrl, 'cronUrl')}
+                      className="text-amber-400 hover:text-amber-300 flex items-center gap-1 font-sans shrink-0 cursor-pointer"
+                    >
+                      {copiedText === 'cronUrl' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedText === 'cronUrl' ? 'คัดลอกแล้ว' : 'คัดลอก URL'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="flex items-center justify-between pt-3 border-t border-zinc-800">
+              <span className="text-[11px] text-zinc-500">
+                🚀 โค้ดทั้งหมดพร้อมใช้งานแล้วใน Repository นี้
+              </span>
               <button
                 onClick={() => setShowGuideModal(false)}
-                className="px-5 py-2 rounded-xl bg-sky-500 text-zinc-950 font-bold text-xs hover:bg-sky-400 cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md shadow-purple-600/20 cursor-pointer"
               >
-                เข้าใจแล้ว พร้อมใช้งาน
+                เข้าใจแล้ว ปิดหน้าต่างนี้
               </button>
             </div>
           </div>

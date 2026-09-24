@@ -1,20 +1,38 @@
-name: Roblox Limiteds & Stock 24/7 Auto Alert
+name: Roblox Limiteds & Stock 24/7 Auto Alert (GitHub Actions)
 
 on:
   schedule:
-    # Run automatically every 30 minutes (UTC)
-    - cron: '*/30 * * * *'
-  workflow_dispatch: # Allows manual trigger from GitHub UI
+    # Run automatically every 15 minutes (24/7 Free on GitHub Cloud)
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Allows manual 1-click trigger from GitHub Actions UI
 
 jobs:
-  alert:
+  roblox-stock-alert:
+    name: Fetch & Send Roblox Stock to Discord
     runs-on: ubuntu-latest
+
     steps:
-      - name: Trigger Auto Alert via Cloud API
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Execute Roblox Limiteds Notifier
         env:
-          DEV_URL: https://ais-dev-hfkquwqjxd4mbefwduiy6q-4504304529.asia-southeast1.run.app
+          # Optional: You can set DISCORD_WEBHOOK in GitHub Repo Settings -> Secrets
+          # If not set, it will use the default webhook configured in the script
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          MODE: 'top-market'
+          ITEMS_COUNT: '5'
         run: |
-          echo "Triggering Roblox Limiteds Auto Bot at $(date)..."
-          curl -X POST "${DEV_URL}/api/roblox/cron" \
+          echo "🚀 Executing Roblox Auto Notifier at $(date)..."
+          node scripts/roblox-cron.mjs
+
+      - name: Optional Ping to Web App
+        run: |
+          curl -s -X POST "https://ais-dev-hfkquwqjxd4mbefwduiy6q-4504304529.asia-southeast1.run.app/api/roblox/cron" \
             -H "Content-Type: application/json" \
-            --silent --show-error --fail || true
+            --silent --fail || true

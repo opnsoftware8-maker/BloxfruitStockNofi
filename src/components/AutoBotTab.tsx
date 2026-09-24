@@ -19,6 +19,7 @@ import {
   Check,
   ChevronDown,
   Terminal,
+  GitBranch,
 } from 'lucide-react';
 
 interface SchedulerLog {
@@ -633,23 +634,82 @@ export const AutoBotTab: React.FC = () => {
         </div>
 
         {showGuide && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
-            {/* Option 1: cron-job.org (Easy & Recommended) */}
-            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5 text-xs">
+            {/* Option 1: GitHub Actions (Best & Recommended) */}
+            <div className="bg-zinc-950 border border-purple-500/40 rounded-xl p-5 space-y-4 shadow-lg shadow-purple-950/20">
               <div className="flex items-center justify-between">
-                <span className="px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 font-bold text-[11px] border border-emerald-500/30">
-                  วิธีที่ 1 (ง่ายที่สุด แนะนำ)
+                <span className="px-2.5 py-1 rounded-md bg-purple-500/20 text-purple-300 font-bold text-[11px] border border-purple-500/30 flex items-center gap-1">
+                  <GitBranch className="w-3.5 h-3.5" /> วิธีที่ 1 (แนะนำที่สุด)
                 </span>
-                <span className="text-zinc-500 font-mono">ฟรี 100% ไม่ต้องเขียนโค้ด</span>
+                <span className="text-zinc-400 font-mono text-[10px]">ไม่ต้องสมัครเว็บอื่น</span>
               </div>
 
               <h4 className="text-sm font-bold text-white">
-                ใช้บริการฟรีของ cron-job.org ยิงตรงเข้า API
+                ใช้ GitHub Actions รันฟรี 24 ชม. บน Cloud
+              </h4>
+
+              <div className="space-y-2 text-zinc-300 leading-relaxed">
+                <p>
+                  สร้างไฟล์ <code className="text-purple-300">.github/workflows/bloxfruits-cron.yml</code> ใน GitHub ของคุณ:
+                </p>
+
+                <div className="bg-zinc-900 border border-zinc-800 p-2.5 rounded-lg space-y-2 font-mono text-[10px]">
+                  <div className="flex items-center justify-between text-zinc-400">
+                    <span>GitHub Workflow YAML</span>
+                    <button
+                      onClick={() =>
+                        copyEndpointUrl(
+                          `name: Blox Fruits 4H Auto Alert
+on:
+  schedule:
+    - cron: '0 0,4,8,12,16,20 * * *'
+  workflow_dispatch:
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -X POST "${currentTriggerUrl}"`
+                        )
+                      }
+                      className="text-purple-400 hover:text-purple-300 flex items-center gap-1 cursor-pointer"
+                    >
+                      {copiedUrl ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                      <span>{copiedUrl ? 'คัดลอกแล้ว' : 'คัดลอก'}</span>
+                    </button>
+                  </div>
+                  <pre className="text-purple-200 overflow-x-auto text-[10px]">
+{`on:
+  schedule:
+    - cron: '0 0,4,8,12,16,20 * * *'
+jobs:
+  alert:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -X POST "${currentTriggerUrl}"`}
+                  </pre>
+                </div>
+                <p className="text-[11px] text-zinc-400">
+                  GitHub จะสั่งยิงตรงเข้าร้าน Blox Fruits ทุก 4 ชม. ตรงรอบรีสต็อกเป๊ะตลอด 24 ชม. แม้ปิดคอมครับ
+                </p>
+              </div>
+            </div>
+
+            {/* Option 2: cron-job.org */}
+            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="px-2.5 py-1 rounded-md bg-zinc-800 text-zinc-300 font-bold text-[11px] border border-zinc-700">
+                  วิธีที่ 2 (เว็บ Cron ภายนอก)
+                </span>
+                <span className="text-zinc-500 font-mono text-[10px]">cron-job.org</span>
+              </div>
+
+              <h4 className="text-sm font-bold text-white">
+                ใช้ cron-job.org ยิงมาที่ Trigger URL
               </h4>
 
               <div className="space-y-2 text-zinc-300 leading-relaxed">
                 <div>
-                  1. สมัครสมาชิกฟรีที่เว็บไซต์{' '}
+                  1. สมัครฟรีที่{' '}
                   <a
                     href="https://cron-job.org"
                     target="_blank"
@@ -660,82 +720,42 @@ export const AutoBotTab: React.FC = () => {
                   </a>
                 </div>
                 <div>
-                  2. กดปุ่ม <strong>"Create Cronjob"</strong> แล้วตั้งค่าตามนี้:
-                </div>
-
-                <div className="bg-zinc-900 border border-zinc-800 p-3 rounded-lg space-y-2 font-mono text-[11px]">
-                  <div>
-                    <span className="text-zinc-500">Title:</span>{' '}
-                    <span className="text-white">Blox Fruits 4H Restock</span>
-                  </div>
-                  <div>
-                    <span className="text-zinc-500">URL to call:</span>
-                    <div className="flex items-center justify-between gap-1 mt-0.5">
-                      <span className="text-emerald-400 truncate">{currentTriggerUrl}</span>
-                      <button
-                        onClick={() => copyEndpointUrl(currentTriggerUrl)}
-                        className="text-zinc-400 hover:text-white p-1"
-                        title="คัดลอก URL"
-                      >
-                        {copiedUrl ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-zinc-500">Schedule:</span>{' '}
-                    <span className="text-amber-300">Every 4 hours (หรือ 0 0,4,8,12,16,20 * * *)</span>
+                  2. สร้าง Cronjob ใส่ URL:
+                  <div className="flex items-center justify-between gap-1 mt-1 bg-zinc-900 p-2 rounded border border-zinc-800 font-mono text-[10px]">
+                    <span className="text-emerald-400 truncate">{currentTriggerUrl}</span>
+                    <button
+                      onClick={() => copyEndpointUrl(currentTriggerUrl)}
+                      className="text-zinc-400 hover:text-white p-1 shrink-0"
+                    >
+                      {copiedUrl ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    </button>
                   </div>
                 </div>
-
                 <div>
-                  3. กดปุ่ม <strong>"Create"</strong> บันทึกทันที! หลังจากนี้ cron-job.org จะยิงมาสั่งให้บอทส่งเข้า Discord ของคุณทุก 4 ชั่วโมงตรงรอบร้านรีสต็อกเป๊ะตลอด 24 ชั่วโมง โดยไม่ต้องเปิดคอมทิ้งไว้เลยครับ
+                  3. ตั้งเวลา <strong>Every 4 hours</strong> (หรือ 0 0,4,8,12,16,20 * * *)
                 </div>
               </div>
             </div>
 
-            {/* Option 2: Vercel Serverless Cron */}
+            {/* Option 3: Vercel Serverless Cron */}
             <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <span className="px-2.5 py-1 rounded-md bg-indigo-500/20 text-indigo-300 font-bold text-[11px] border border-indigo-500/30">
-                  วิธีที่ 2 (ขึ้น Cloud Vercel)
+                  วิธีที่ 3 (ขึ้น Vercel)
                 </span>
-                <span className="text-zinc-500 font-mono">Serverless Edge</span>
+                <span className="text-zinc-500 font-mono text-[10px]">Serverless</span>
               </div>
 
               <h4 className="text-sm font-bold text-white">
-                รันโค้ด TypeScript บน Vercel พร้อมไฟล์ vercel.json
+                รัน Serverless บน Vercel ผ่าน vercel.json
               </h4>
 
               <div className="space-y-2 text-zinc-300 leading-relaxed">
-                <div>
-                  1. ไปที่แท็บ <strong>"💻 โค้ด TypeScript"</strong> แล้วกดดาวน์โหลดไฟล์โปรเจกต์ ZIP
-                </div>
-                <div>
-                  2. อัปโหลดขึ้น GitHub แล้วนำไป Deploy บน{' '}
-                  <a
-                    href="https://vercel.com"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-sky-400 underline font-semibold inline-flex items-center gap-0.5"
-                  >
-                    Vercel <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-                <div>
-                  3. ในหน้า Vercel ให้ใส่ Environment Variable:
-                  <div className="bg-zinc-900 border border-zinc-800 p-2 rounded mt-1 font-mono text-[11px]">
-                    <span className="text-amber-300">DISCORD_WEBHOOK_URL</span> ={' '}
-                    <span className="text-zinc-400">{scheduler.webhookUrl.substring(0, 45)}...</span>
-                  </div>
-                </div>
-                <div>
-                  4. ในไฟล์ <code className="text-amber-300">vercel.json</code> ได้ใส่คำสั่ง Cron ไว้แล้ว:
-                  <pre className="bg-zinc-900 p-2 rounded border border-zinc-800 font-mono text-[10px] text-zinc-300 mt-1">
-{`"crons": [
-  { "path": "/api/stock-notifier", "schedule": "0 0,4,8,12,16,20 * * *" }
-]`}
-                  </pre>
-                  ระบบจะรันบนคลาวด์ของ Vercel และส่งเข้า Discord ทุก 4 ชั่วโมงโดยอัตโนมัติเช่นกันครับ
+                <p>
+                  ดาวน์โหลดโค้ดในแท็บ <strong>"💻 โค้ด TypeScript"</strong> แล้ว Deploy บน Vercel พร้อมไฟล์ <code className="text-amber-300">vercel.json</code> ที่มี Cron เตรียมไว้ให้แล้ว
+                </p>
+                <div className="bg-zinc-900 border border-zinc-800 p-2 rounded font-mono text-[10px] text-zinc-400">
+                  Environment: <span className="text-amber-300">DISCORD_WEBHOOK_URL</span>
                 </div>
               </div>
             </div>
