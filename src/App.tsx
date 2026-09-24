@@ -4,6 +4,7 @@ import { LiveStockTab } from './components/LiveStockTab';
 import { DiscordTestTab } from './components/DiscordTestTab';
 import { VercelCodeTab } from './components/VercelCodeTab';
 import { DeployGuideTab } from './components/DeployGuideTab';
+import { AutoBotTab } from './components/AutoBotTab';
 import {
   Flame,
   Send,
@@ -15,12 +16,13 @@ import {
   Sparkles,
   RefreshCw,
   ExternalLink,
+  Zap,
 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    'liveStock' | 'discordTest' | 'vercelCode' | 'deployGuide'
-  >('liveStock');
+    'liveStock' | 'autoBot' | 'discordTest' | 'vercelCode' | 'deployGuide'
+  >('autoBot');
 
   const [stockFruits, setStockFruits] = useState<BloxFruit[]>([
     FRUITS_DATABASE['Quake'],
@@ -164,6 +166,18 @@ export default function App() {
           {/* Navigation Tabs */}
           <div className="flex items-center gap-2 overflow-x-auto py-2.5 scrollbar-none border-t border-zinc-800/40 text-xs">
             <button
+              onClick={() => setActiveTab('autoBot')}
+              className={`px-3.5 py-1.5 rounded-lg font-semibold flex items-center gap-2 transition-all cursor-pointer shrink-0 ${
+                activeTab === 'autoBot'
+                  ? 'bg-emerald-500 text-zinc-950 shadow-md shadow-emerald-500/20'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+              <span>⚡ บอทส่งอัตโนมัติ (Auto 4-Hour Bot)</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('liveStock')}
               className={`px-3.5 py-1.5 rounded-lg font-semibold flex items-center gap-2 transition-all cursor-pointer shrink-0 ${
                 activeTab === 'liveStock'
@@ -203,12 +217,12 @@ export default function App() {
               onClick={() => setActiveTab('deployGuide')}
               className={`px-3.5 py-1.5 rounded-lg font-semibold flex items-center gap-2 transition-all cursor-pointer shrink-0 ${
                 activeTab === 'deployGuide'
-                  ? 'bg-emerald-500 text-zinc-950 shadow-md shadow-emerald-500/20'
+                  ? 'bg-sky-500 text-zinc-950 shadow-md shadow-sky-500/20'
                   : 'text-zinc-400 hover:text-white hover:bg-zinc-800/60'
               }`}
             >
               <BookOpen className="w-3.5 h-3.5" />
-              <span>คู่มือติดตั้งบน Vercel</span>
+              <span>คู่มือติดตั้งบน Vercel & Cron</span>
             </button>
           </div>
         </div>
@@ -216,6 +230,8 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {activeTab === 'autoBot' && <AutoBotTab />}
+
         {activeTab === 'liveStock' && (
           <LiveStockTab
             stockFruits={stockFruits}

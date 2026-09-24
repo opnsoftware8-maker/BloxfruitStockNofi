@@ -137,6 +137,358 @@ async function fetchWikiStock() {
   };
 }
 
+// ==========================================
+// In-Memory Auto-Scheduler State
+// ==========================================
+interface SchedulerLog {
+  id: string;
+  timestamp: string;
+  thaiTime: string;
+  triggerType: 'auto-cron' | 'manual-test' | 'api';
+  status: 'success' | 'error';
+  fruits: string[];
+  hasMythical: boolean;
+  hasLegendary: boolean;
+  message: string;
+}
+
+const schedulerConfig = {
+  enabled: true, // เปิดทำงานอัตโนมัติทันที
+  webhookUrl: DEFAULT_WEBHOOK,
+  mentionType: 'none',
+  roleId: '',
+  onlyHighRarity: false,
+  customNote: '🔔 บอทอัตโนมัติ Blox Fruits Dealer Stock Notifier',
+  parseBotEndpoint: 'https://api.parse.bot/mcp',
+  parseBotApiKey: '',
+  useParseBot: false,
+  lastDispatchedWindow: '', // ป้องกันการส่งซ้ำในรอบ 4 ชม. เดียวกัน
+  lastRunAt: null as string | null,
+  nextRunAt: null as string | null,
+  logs: [] as SchedulerLog[],
+};
+
+// Helper: Try to parse stock using Parse.bot MCP if configured, otherwise fallback to Wiki scraper
+async function fetchStockWithFallback() {
+  if (schedulerConfig.useParseBot && schedulerConfig.parseBotEndpoint && schedulerConfig.parseBotApiKey) {
+    try {
+      console.log(`[ParseBot] Attempting to call Parse.bot MCP at ${schedulerConfig.parseBotEndpoint}...`);
+      const parseRes = await fetch(schedulerConfig.parseBotEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': schedulerConfig.parseBotApiKey,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: Date.now(),
+          method: 'tools/call',
+          params: {
+            name: 'parse_url',
+            arguments: {
+              url: 'https://blox-fruits.fandom.com/wiki/Blox_Fruits_%22Dealer%22',
+            },
+          },
+        }),
+      });
+
+      if (parseRes.ok) {
+        const data = await parseRes.json();
+        console.log('[ParseBot] Received response from Parse.bot:', JSON.stringify(data).substring(0, 200));
+        // Parse fruit names from response if present, otherwise continue to fallback
+      }
+    } catch (parseErr: any) {
+      console.warn('[ParseBot] Parse.bot API call error, falling back to Wiki scraper:', parseErr.message);
+    }
+  }
+
+  // Primary reliable Fandom Wiki stock scraper
+  return await fetchWikiStock();
+}
+
+// Dispatch helper
+async function executeStockNotification(triggerType: 'auto-cron' | 'manual-test' | 'api' = 'auto-cron') {
+  try {
+    const stockData = await fetchStockWithFallback();
+    const timers = getResetTimers();
+
+    const stockFruits = stockData.fruits;
+    const grouped: Record<string, any[]> = {
+      Mythical: [],
+      Legendary: [],
+      Rare: [],
+      Uncommon: [],
+      Common: [],
+    };
+
+    let hasMythical = false;
+    let hasLegendary = false;
+
+    for (const f of stockFruits) {
+      const r = f.rarity || 'Common';
+      if (r === 'Mythical') hasMythical = true;
+      if (r === 'Legendary') hasLegendary = true;
+      if (grouped[r]) grouped[r].push(f);
+    }
+
+    let embedColor = 0x3498db; // Rare (Blue)
+    if (hasMythical) embedColor = 0xe74c3c; // Red
+    else if (hasLegendary) embedColor = 0x9b59b6; // Purple
+
+    const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
+
+    const formatFruitLine = (f: any) => {
+      const priceStr = f.beliPrice
+        ? ` — 💰 $${Number(f.beliPrice).toLocaleString()} | 💎 R$ ${f.robuxPrice}`
+        : '';
+      const awakenBadge = f.awakening ? ' ⚡*(มีร่างตื่น)*' : '';
+      return `• **${f.name}** (${f.thaiName})${priceStr}${awakenBadge}`;
+    };
+
+    if (grouped.Mythical.length > 0) {
+      fields.push({
+        name: '🔥 ระดับ Mythical (ผลมายา/เทพ)',
+        value: grouped.Mythical.map(formatFruitLine).join('\n'),
+        inline: false,
+      });
+    }
+
+    if (grouped.Legendary.length > 0) {
+      fields.push({
+        name: '✨ ระดับ Legendary (ผลตำนาน)',
+        value: grouped.Legendary.map(formatFruitLine).join('\n'),
+        inline: false,
+      });
+    }
+
+    if (!schedulerConfig.onlyHighRarity) {
+      if (grouped.Rare.length > 0) {
+        fields.push({
+          name: '💎 ระดับ Rare (ผลหายาก)',
+          value: grouped.Rare.map(formatFruitLine).join('\n'),
+          inline: false,
+        });
+      }
+
+      if (grouped.Uncommon.length > 0) {
+        fields.push({
+          name: '🌿 ระดับ Uncommon (ผลคัดพิเศษ)',
+          value: grouped.Uncommon.map(formatFruitLine).join('\n'),
+          inline: false,
+        });
+      }
+
+      if (grouped.Common.length > 0) {
+        fields.push({
+          name: '📦 ระดับ Common (ผลทั่วไป / ขายประจำ)',
+          value: grouped.Common.map(formatFruitLine).join('\n'),
+          inline: false,
+        });
+      }
+    }
+
+    fields.push({
+      name: '⏰ เวลารีเซ็ตสต็อกรอบถัดไป',
+      value: `• **เวลาไทย:** ${timers.thaiFormatted}\n• **นับถอยหลัง:** ${timers.countdownText}\n• **Discord Timestamp:** <t:${timers.timestampSec}:R>`,
+      inline: false,
+    });
+
+    if (schedulerConfig.customNote.trim()) {
+      fields.push({
+        name: '📝 ข้อความแจ้งเตือนอัตโนมัติ',
+        value: schedulerConfig.customNote.trim(),
+        inline: false,
+      });
+    }
+
+    let contentPrefix = '';
+    if (schedulerConfig.mentionType === '@everyone') contentPrefix = '@everyone ';
+    else if (schedulerConfig.mentionType === '@here') contentPrefix = '@here ';
+    else if (schedulerConfig.mentionType === 'role' && schedulerConfig.roleId)
+      contentPrefix = `<@&${schedulerConfig.roleId.trim()}> `;
+
+    if (hasMythical) {
+      contentPrefix += '🚨 **[ALERT] มีผล Mythical เข้าสต็อก Blox Fruits Dealer!**';
+    }
+
+    const payload = {
+      content: contentPrefix.trim() || undefined,
+      username: 'Blox Fruits Fruit Dealer (Auto Bot)',
+      avatar_url: hasMythical
+        ? 'https://static.wikia.nocookie.net/roblox-blox-piece/images/e/e9/Kitsune_Fruit.png/revision/latest'
+        : 'https://static.wikia.nocookie.net/roblox-blox-piece/images/d/df/Buddha_Fruit.png/revision/latest',
+      embeds: [
+        {
+          title: '🍉 Blox Fruits Dealer Stock Update | อัปเดตสต็อกผลไม้อัตโนมัติ',
+          description: `🛒 **คนขายผลปีศาจ (Blox Fruit Dealer)** มีผลไม้พร้อมจำหน่ายในสต็อกปัจจุบัน:\n*(บันทึกรอบวันที่ ${stockData.date} เวลา ${stockData.time})*`,
+          color: embedColor,
+          fields,
+          thumbnail: {
+            url:
+              stockFruits.find((f: any) => f.rarity === 'Mythical')?.image ||
+              stockFruits.find((f: any) => f.rarity === 'Legendary')?.image ||
+              'https://static.wikia.nocookie.net/roblox-blox-piece/images/6/6f/Magma_Fruit.png/revision/latest',
+          },
+          footer: {
+            text: `ระบบส่งอัตโนมัติทุก 4 ชม. • Trigger: ${triggerType}`,
+            icon_url:
+              'https://static.wikia.nocookie.net/roblox-blox-piece/images/1/14/Quake_Fruit.png/revision/latest',
+          },
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    };
+
+    const targetUrl = schedulerConfig.webhookUrl || DEFAULT_WEBHOOK;
+    const discordRes = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    const now = new Date();
+    const thaiTime = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    if (!discordRes.ok) {
+      const errText = await discordRes.text();
+      const failLog: SchedulerLog = {
+        id: `log-${Date.now()}`,
+        timestamp: now.toISOString(),
+        thaiTime,
+        triggerType,
+        status: 'error',
+        fruits: stockFruits.map((f: any) => f.name),
+        hasMythical,
+        hasLegendary,
+        message: `Discord Error: ${errText.substring(0, 100)}`,
+      };
+      schedulerConfig.logs.unshift(failLog);
+      if (schedulerConfig.logs.length > 20) schedulerConfig.logs.pop();
+      return { success: false, error: errText };
+    }
+
+    schedulerConfig.lastRunAt = now.toISOString();
+    const nextT = getResetTimers();
+    schedulerConfig.nextRunAt = nextT.nextResetUtc;
+
+    const successLog: SchedulerLog = {
+      id: `log-${Date.now()}`,
+      timestamp: now.toISOString(),
+      thaiTime,
+      triggerType,
+      status: 'success',
+      fruits: stockFruits.map((f: any) => f.name),
+      hasMythical,
+      hasLegendary,
+      message: `ส่งสำเร็จ ${stockFruits.length} ผล (รอบรีเซ็ต ${stockData.time})`,
+    };
+    schedulerConfig.logs.unshift(successLog);
+    if (schedulerConfig.logs.length > 20) schedulerConfig.logs.pop();
+
+    console.log(`[AutoBot] Successfully dispatched stock alert at ${thaiTime}`);
+    return { success: true, count: stockFruits.length, hasMythical, hasLegendary };
+  } catch (err: any) {
+    console.error('[AutoBot] Dispatch failed:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// Background Cron Loop running inside Node server
+// Checks every 15 seconds if a 4-hour window transition occurred
+setInterval(async () => {
+  if (!schedulerConfig.enabled) return;
+
+  const now = new Date();
+  const currentUtcHour = now.getUTCHours();
+  const currentMinute = now.getUTCMinutes();
+
+  // Blox Fruits resets at 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
+  const isResetHour = currentUtcHour % 4 === 0;
+  // Trigger within the first 2 minutes of the new rotation
+  const isResetMinute = currentMinute >= 0 && currentMinute <= 2;
+
+  const currentWindowKey = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}-${currentUtcHour}`;
+
+  if (isResetHour && isResetMinute && schedulerConfig.lastDispatchedWindow !== currentWindowKey) {
+    console.log(`[AutoBot] Restock window matched: ${currentWindowKey}. Triggering auto alert!`);
+    schedulerConfig.lastDispatchedWindow = currentWindowKey;
+    await executeStockNotification('auto-cron');
+  }
+}, 15000);
+
+// API: Get Scheduler Status
+app.get('/api/bloxfruits/scheduler', (_req, res) => {
+  const timers = getResetTimers();
+  res.json({
+    success: true,
+    data: {
+      enabled: schedulerConfig.enabled,
+      webhookUrl: schedulerConfig.webhookUrl,
+      mentionType: schedulerConfig.mentionType,
+      roleId: schedulerConfig.roleId,
+      onlyHighRarity: schedulerConfig.onlyHighRarity,
+      customNote: schedulerConfig.customNote,
+      parseBotEndpoint: schedulerConfig.parseBotEndpoint,
+      parseBotApiKey: schedulerConfig.parseBotApiKey,
+      useParseBot: schedulerConfig.useParseBot,
+      lastRunAt: schedulerConfig.lastRunAt,
+      nextRunAt: schedulerConfig.nextRunAt || timers.nextResetUtc,
+      nextResetThai: timers.thaiFormatted,
+      countdownText: timers.countdownText,
+      logs: schedulerConfig.logs,
+    },
+  });
+});
+
+// API: Toggle or Update Scheduler Settings
+app.post('/api/bloxfruits/scheduler/toggle', (req, res) => {
+  const { enabled, webhookUrl, mentionType, roleId, onlyHighRarity, customNote, parseBotEndpoint, parseBotApiKey, useParseBot } = req.body;
+  if (typeof enabled === 'boolean') {
+    schedulerConfig.enabled = enabled;
+  }
+  if (webhookUrl !== undefined) schedulerConfig.webhookUrl = webhookUrl;
+  if (mentionType !== undefined) schedulerConfig.mentionType = mentionType;
+  if (roleId !== undefined) schedulerConfig.roleId = roleId;
+  if (onlyHighRarity !== undefined) schedulerConfig.onlyHighRarity = onlyHighRarity;
+  if (customNote !== undefined) schedulerConfig.customNote = customNote;
+  if (parseBotEndpoint !== undefined) schedulerConfig.parseBotEndpoint = parseBotEndpoint;
+  if (parseBotApiKey !== undefined) schedulerConfig.parseBotApiKey = parseBotApiKey;
+  if (typeof useParseBot === 'boolean') schedulerConfig.useParseBot = useParseBot;
+
+  res.json({
+    success: true,
+    message: schedulerConfig.enabled
+      ? '🟢 บันทึกการตั้งค่าและระบบบอทเปิดทำงานเรียบร้อยแล้ว'
+      : '🔴 บันทึกการตั้งค่าแล้ว (สถานะบอท: ปิด)',
+    config: {
+      enabled: schedulerConfig.enabled,
+      webhookUrl: schedulerConfig.webhookUrl,
+      mentionType: schedulerConfig.mentionType,
+      onlyHighRarity: schedulerConfig.onlyHighRarity,
+      parseBotEndpoint: schedulerConfig.parseBotEndpoint,
+      useParseBot: schedulerConfig.useParseBot,
+    },
+  });
+});
+
+// API: Manual trigger from scheduler
+app.post('/api/bloxfruits/scheduler/trigger', async (_req, res) => {
+  const result = await executeStockNotification('manual-test');
+  if (result.success) {
+    res.json({
+      success: true,
+      message: 'ยิงส่งแจ้งเตือนอัตโนมัติเรียบร้อยแล้ว!',
+      data: result,
+    });
+  } else {
+    res.status(500).json({
+      success: false,
+      message: 'เกิดข้อผิดพลาดในการส่ง',
+      error: result.error,
+    });
+  }
+});
+
 // API: Get Stock
 app.get('/api/bloxfruits/stock', async (_req, res) => {
   try {

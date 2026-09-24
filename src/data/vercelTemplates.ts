@@ -336,6 +336,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 }
 `,
 
+  '.github/workflows/stock-cron.yml': `# GitHub Actions Workflow สำหรับแจ้งเตือน Blox Fruits ทุก 4 ชั่วโมง ฟรี 100%
+name: Blox Fruits 4-Hour Stock Notifier
+
+on:
+  schedule:
+    # รันทุก 4 ชั่วโมงตรงเวลารีสต็อก (เวลาไทย 03:00, 07:00, 11:00, 15:00, 19:00, 23:00 น.)
+    - cron: '0 0,4,8,12,16,20 * * *'
+  workflow_dispatch: # รองรับการกดรันด้วยตนเองบน GitHub
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Trigger Stock Notifier
+        env:
+          DISCORD_WEBHOOK_URL: \${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: npx tsx -e "import('./api/stock-notifier.ts')"
+`,
+
   'package.json': `{
   "name": "bloxfruits-stock-discord-notifier",
   "version": "1.0.0",
