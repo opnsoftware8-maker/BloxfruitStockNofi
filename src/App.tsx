@@ -5,6 +5,7 @@ import { DiscordTestTab } from './components/DiscordTestTab';
 import { VercelCodeTab } from './components/VercelCodeTab';
 import { DeployGuideTab } from './components/DeployGuideTab';
 import { AutoBotTab } from './components/AutoBotTab';
+import { RobloxLimitedsTab } from './components/RobloxLimitedsTab';
 import {
   Flame,
   Send,
@@ -17,12 +18,13 @@ import {
   RefreshCw,
   ExternalLink,
   Zap,
+  Crown,
 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    'liveStock' | 'autoBot' | 'discordTest' | 'vercelCode' | 'deployGuide'
-  >('autoBot');
+    'robloxLimiteds' | 'autoBot' | 'liveStock' | 'discordTest' | 'vercelCode' | 'deployGuide'
+  >('robloxLimiteds');
 
   const [stockFruits, setStockFruits] = useState<BloxFruit[]>([
     FRUITS_DATABASE['Quake'],
@@ -39,6 +41,7 @@ export default function App() {
   const [timestampSec, setTimestampSec] = useState<number>(Math.floor(Date.now() / 1000) + 7200);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [isCustomStock, setIsCustomStock] = useState<boolean>(false);
 
   // Fetch stock from our API proxy
   const fetchStock = async () => {
@@ -58,6 +61,7 @@ export default function App() {
         setStockFruits(data.data.fruits || []);
         setRotationDate(data.data.date || 'Current');
         setRotationTime(data.data.time || 'Live');
+        setIsCustomStock(!!data.data.isCustom);
         if (data.data.resetTimers) {
           setNextResetThai(data.data.resetTimers.thaiFormatted);
           setTimestampSec(data.data.resetTimers.timestampSec);
@@ -122,14 +126,14 @@ export default function App() {
               <div>
                 <div className="flex items-center gap-2">
                   <h1 className="text-base sm:text-lg font-black text-white tracking-tight">
-                    Blox Fruits Stock
+                    Roblox Limiteds & Blox Fruits
                   </h1>
-                  <span className="hidden sm:inline-block bg-amber-500/10 text-amber-400 border border-amber-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    Discord & Vercel
+                  <span className="hidden sm:inline-block bg-sky-500/10 text-sky-400 border border-sky-500/30 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    Official API แท้ 100%
                   </span>
                 </div>
                 <p className="text-[11px] text-zinc-400 hidden sm:block">
-                  Wiki Stock Notifier & Vercel Cron Automation
+                  Roblox Catalog Economy & Real-Time Discord Notifier
                 </p>
               </div>
             </div>
@@ -173,6 +177,18 @@ export default function App() {
           {/* Navigation Tabs */}
           <div className="flex items-center gap-2 overflow-x-auto py-2.5 scrollbar-none border-t border-zinc-800/40 text-xs">
             <button
+              onClick={() => setActiveTab('robloxLimiteds')}
+              className={`px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-2 transition-all cursor-pointer shrink-0 ${
+                activeTab === 'robloxLimiteds'
+                  ? 'bg-gradient-to-r from-sky-500 to-indigo-600 text-white shadow-lg shadow-sky-500/25 ring-1 ring-white/20'
+                  : 'text-zinc-300 hover:text-white hover:bg-zinc-800/80'
+              }`}
+            >
+              <Crown className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+              <span>💎 แคตตาล็อกลิมิเต็ด Roblox (Official API แท้ 100%)</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('autoBot')}
               className={`px-3.5 py-1.5 rounded-lg font-semibold flex items-center gap-2 transition-all cursor-pointer shrink-0 ${
                 activeTab === 'autoBot'
@@ -181,7 +197,7 @@ export default function App() {
               }`}
             >
               <Zap className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
-              <span>⚡ บอทส่งอัตโนมัติ (Auto 4-Hour Bot)</span>
+              <span>⚡ บอทส่ง Blox Fruits (Auto 4-Hour)</span>
             </button>
 
             <button
@@ -193,7 +209,7 @@ export default function App() {
               }`}
             >
               <span>🍉</span>
-              <span>สต็อกผลไม้สด (Live Stock)</span>
+              <span>สต็อกผลไม้สด Blox Fruits</span>
             </button>
 
             <button
@@ -205,7 +221,7 @@ export default function App() {
               }`}
             >
               <Send className="w-3.5 h-3.5" />
-              <span>ทดสอบแจ้งเตือน Discord</span>
+              <span>ทดสอบส่ง Discord</span>
             </button>
 
             <button
@@ -217,7 +233,7 @@ export default function App() {
               }`}
             >
               <Code2 className="w-3.5 h-3.5" />
-              <span>โค้ด TypeScript สำหรับ Vercel</span>
+              <span>โค้ด TypeScript Vercel</span>
             </button>
 
             <button
@@ -229,7 +245,7 @@ export default function App() {
               }`}
             >
               <BookOpen className="w-3.5 h-3.5" />
-              <span>คู่มือติดตั้งบน Vercel & Cron</span>
+              <span>คู่มือ Vercel</span>
             </button>
           </div>
         </div>
@@ -237,6 +253,8 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {activeTab === 'robloxLimiteds' && <RobloxLimitedsTab />}
+
         {activeTab === 'autoBot' && <AutoBotTab />}
 
         {activeTab === 'liveStock' && (
@@ -249,6 +267,14 @@ export default function App() {
             isLoading={isLoading}
             onRefresh={fetchStock}
             onSendDiscord={() => setActiveTab('discordTest')}
+            isCustom={isCustomStock}
+            onUpdateCustomStock={(fruits) => {
+              setStockFruits(fruits);
+              setIsCustomStock(true);
+            }}
+            onResetToWiki={() => {
+              setIsCustomStock(false);
+            }}
           />
         )}
 

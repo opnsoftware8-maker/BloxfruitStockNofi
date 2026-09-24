@@ -608,21 +608,24 @@ export const AutoBotTab: React.FC = () => {
       </div>
 
       {/* Complete Tutorial: How to Run 24/7 without keeping PC on */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-6 shadow-xl">
+      <div className="bg-zinc-900 border-2 border-amber-500/40 rounded-2xl p-6 space-y-6 shadow-2xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800 pb-4">
           <div>
-            <h3 className="text-lg font-black text-white flex items-center gap-2">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/10 border border-amber-500/30 text-amber-400 mb-2">
+              <Zap className="w-3.5 h-3.5" /> แนะนำสำหรับการรันจริง 24 ชั่วโมง
+            </div>
+            <h3 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
               <Globe className="w-5 h-5 text-sky-400" />
-              สอนวิธีตั้งค่าให้ส่งอัตโนมัติ 24 ชม. ตลอดชีพ (ไม่ต้องเปิดคอมทิ้งไว้)
+              วิธีทำให้ระบบส่งแจ้งเตือนทุก 4 ชม. อัตโนมัติ 100% ตลอดชีพ (ไม่ต้องเปิดเว็บหรือเปิดคอมทิ้งไว้)
             </h3>
             <p className="text-xs text-zinc-400 mt-1">
-              เลือก 1 ใน 2 วิธีด้านล่างนี้ได้เลย ฟรี 100% และใช้เวลาตั้งค่าไม่เกิน 2 นาที
+              เนื่องจากเว็บบนเบราว์เซอร์จะหยุดทำงานเมื่อคุณปิดหน้าต่างหรือปิดเครื่อง ให้เลือก 1 ใน 2 วิธีด้านล่างนี้ (ฟรี 100% ตั้งค่าเพียง 1 นาที):
             </p>
           </div>
 
           <button
             onClick={() => setShowGuide(!showGuide)}
-            className="text-xs text-amber-400 hover:underline flex items-center gap-1 cursor-pointer"
+            className="text-xs text-amber-400 hover:underline flex items-center gap-1 cursor-pointer shrink-0"
           >
             <span>{showGuide ? 'ซ่อนคู่มือ' : 'แสดงคู่มือ'}</span>
             <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showGuide ? 'rotate-180' : ''}`} />

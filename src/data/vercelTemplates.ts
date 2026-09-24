@@ -327,6 +327,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   'vercel.json': `{
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/bloxfruits/stock",
+      "destination": "/api/stock-notifier"
+    },
+    {
+      "source": "/api/bloxfruits/send-discord",
+      "destination": "/api/stock-notifier"
+    },
+    {
+      "source": "/api/bloxfruits/scheduler/trigger",
+      "destination": "/api/stock-notifier"
+    },
+    {
+      "source": "/api/bloxfruits/scheduler",
+      "destination": "/api/stock-notifier"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ],
   "crons": [
     {
       "path": "/api/stock-notifier",

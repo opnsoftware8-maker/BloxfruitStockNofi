@@ -1,0 +1,34 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/bloxfruits/stock",
+      "destination": "/api/stock"
+    },
+    {
+      "source": "/api/bloxfruits/send-discord",
+      "destination": "/api/send-discord"
+    },
+    {
+      "source": "/api/bloxfruits/scheduler/trigger",
+      "destination": "/api/stock-notifier"
+    },
+    {
+      "source": "/api/bloxfruits/scheduler",
+      "destination": "/api/scheduler"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/stock-notifier"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/stock-notifier",
+      "schedule": "0 0,4,8,12,16,20 * * *"
+    }
+  ]
+}

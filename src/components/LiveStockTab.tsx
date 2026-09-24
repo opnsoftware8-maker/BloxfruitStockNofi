@@ -24,6 +24,9 @@ interface LiveStockTabProps {
   isLoading: boolean;
   onRefresh: () => void;
   onSendDiscord: () => void;
+  onUpdateCustomStock?: (fruits: BloxFruit[]) => void;
+  onResetToWiki?: () => void;
+  isCustom?: boolean;
 }
 
 export const LiveStockTab: React.FC<LiveStockTabProps> = ({
@@ -35,14 +38,71 @@ export const LiveStockTab: React.FC<LiveStockTabProps> = ({
   isLoading,
   onRefresh,
   onSendDiscord,
+  onUpdateCustomStock,
+  onResetToWiki,
+  isCustom = false,
 }) => {
   const [viewMode, setViewMode] = useState<'inStock' | 'all'>('inStock');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRarity, setSelectedRarity] = useState<string>('All');
   const [selectedType, setSelectedType] = useState<string>('All');
 
+  // Custom in-game fruit editor modal
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempSelectedFruits, setTempSelectedFruits] = useState<string[]>([]);
+  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+
   const allFruitsList = Object.values(FRUITS_DATABASE);
   const stockFruitNames = new Set(stockFruits.map((f) => f.name));
+
+  const openEditor = () => {
+    setTempSelectedFruits(stockFruits.map((f) => f.name));
+    setIsEditing(true);
+    setSaveStatus(null);
+  };
+
+  const toggleFruitInSelection = (fruitName: string) => {
+    // Keep Rocket & Spin always in stock
+    if (fruitName === 'Rocket' || fruitName === 'Spin') return;
+    setTempSelectedFruits((prev) =>
+      prev.includes(fruitName) ? prev.filter((name) => name !== fruitName) : [...prev, fruitName]
+    );
+  };
+
+  const handleSaveInGameStock = async () => {
+    try {
+      const chosenFruits = tempSelectedFruits.map((name) => FRUITS_DATABASE[name]).filter(Boolean);
+      const res = await fetch('/api/bloxfruits/stock/override', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fruits: chosenFruits,
+          date: 'สต็อกในเกมจริง (ตรวจพบขณะนี้)',
+          time: new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSaveStatus('✅ อัปเดตสต็อกตรงกับในเกมของคุณเรียบร้อยแล้ว!');
+        if (onUpdateCustomStock) onUpdateCustomStock(data.data.fruits);
+        setTimeout(() => {
+          setIsEditing(false);
+          setSaveStatus(null);
+          onRefresh();
+        }, 1200);
+      }
+    } catch (err: any) {
+      setSaveStatus(`❌ เกิดข้อผิดพลาด: ${err.message}`);
+    }
+  };
+
+  const handleResetWiki = async () => {
+    try {
+      await fetch('/api/bloxfruits/stock/reset-wiki', { method: 'POST' });
+      if (onResetToWiki) onResetToWiki();
+      onRefresh();
+    } catch {}
+  };
 
   const sourceList = viewMode === 'inStock' ? stockFruits : allFruitsList;
 
@@ -112,14 +172,34 @@ export const LiveStockTab: React.FC<LiveStockTabProps> = ({
                 ส่งเข้า Discord เดี๋ยวนี้
               </button>
 
-              <button
-                onClick={onRefresh}
-                disabled={isLoading}
-                className="inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 font-medium text-xs border border-zinc-700 transition-colors disabled:opacity-50 cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                {isLoading ? 'กำลังดึงข้อมูล Wiki...' : 'อัปเดตข้อมูลสด'}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={openEditor}
+                  className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 font-semibold text-xs border border-amber-500/40 transition-colors cursor-pointer"
+                  title="ถ้าสต็อกไม่ตรงกับในเกมของคุณ กดปุ่มนี้เพื่อติ๊กเลือกผลไม้ที่เห็นในเกมได้ทันที"
+                >
+                  <Store className="w-3.5 h-3.5" />
+                  <span>✏️ ตั้งผลตามในเกม</span>
+                </button>
+
+                <button
+                  onClick={onRefresh}
+                  disabled={isLoading}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 font-medium text-xs border border-zinc-700 transition-colors disabled:opacity-50 cursor-pointer"
+                  title="รีเฟรชข้อมูล"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+
+              {isCustom && (
+                <button
+                  onClick={handleResetWiki}
+                  className="text-[11px] text-zinc-400 hover:text-amber-400 text-center underline cursor-pointer"
+                >
+                  รีเซ็ตกลับเป็นดึงจาก Fandom Wiki
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -245,35 +325,110 @@ export const LiveStockTab: React.FC<LiveStockTabProps> = ({
         </div>
       )}
 
-      {/* Blox Fruits Dealer Mechanics Info Box */}
-      <div className="rounded-xl bg-zinc-900/60 border border-zinc-800 p-5 space-y-3">
-        <h3 className="text-sm font-bold text-white flex items-center gap-2">
-          <Store className="w-4 h-4 text-amber-400" />
-          เกร็ดความรู้ระบบคนขายผล Blox Fruits (Dealer Mechanics)
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-zinc-400 leading-relaxed">
-          <div className="space-y-1.5 bg-zinc-950/40 p-3 rounded-lg border border-zinc-800/60">
-            <strong className="text-zinc-200 block text-sm">🏪 คนขายผลทั่วไป (Regular Dealer)</strong>
-            <p>
-              • สต็อกรีเซ็ตทุกๆ <strong>4 ชั่วโมง</strong> พร้อมกันทุกเซิร์ฟเวอร์ทั่วโลก
-              (เวลาไทย: 03:00, 07:00, 11:00, 15:00, 19:00, 23:00 น.)
-            </p>
-            <p>
-              • ผล <strong>Rocket</strong> ($5,000) และ <strong>Spin</strong> ($7,500) จะมีขายตลอดเวลาในร้านค้า
-            </p>
-          </div>
+      {/* In-Game Stock Editor Modal */}
+      {isEditing && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-700 rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-5 border-b border-zinc-800 flex items-center justify-between bg-zinc-950">
+              <div>
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <span>🎮 ตั้งสต็อกผลไม้ให้ตรงกับในเกมของคุณ</span>
+                </h3>
+                <p className="text-xs text-zinc-400 mt-1">
+                  ติ๊กเลือกผลไม้ที่คุณเห็นอยู่ในร้านค้า Blox Fruit Dealer ในเกมตอนนี้ เพื่อให้ระบบจำและส่งแจ้งเตือนได้ถูกต้อง 100%
+                </p>
+              </div>
+              <button
+                onClick={() => setIsEditing(false)}
+                className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white flex items-center justify-center cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
 
-          <div className="space-y-1.5 bg-zinc-950/40 p-3 rounded-lg border border-zinc-800/60">
-            <strong className="text-zinc-200 block text-sm">🏝️ คนขายผลเกาะมิราจ (Advanced Mirage Dealer)</strong>
-            <p>
-              • อยู่บนเกาะมิราจ (Mirage Island) ทะเล 3 รีเซ็ตทุกๆ <strong>2 ชั่วโมง</strong>
-            </p>
-            <p>
-              • โอกาสออกผลระดับ Legendary และ Mythical สูงกว่าคนขายธรรมดา มีผลขายพร้อมกัน 7 ผลต่อรอบ
-            </p>
+            {/* Modal Body - Fruits List */}
+            <div className="p-5 overflow-y-auto flex-1 space-y-4">
+              {saveStatus && (
+                <div
+                  className={`p-3 rounded-xl text-xs font-semibold ${
+                    saveStatus.startsWith('✅')
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                  }`}
+                >
+                  {saveStatus}
+                </div>
+              )}
+
+              <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 p-3 rounded-xl flex items-center gap-2">
+                <span>💡</span>
+                <span>
+                  ผล <strong>Rocket</strong> และ <strong>Spin</strong> มีขายตลอดเวลาในเกม จึงถูกเลือกไว้ให้อัตโนมัติครับ
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                {allFruitsList.map((fruit) => {
+                  const isSelected = tempSelectedFruits.includes(fruit.name);
+                  const isPermanent = fruit.name === 'Rocket' || fruit.name === 'Spin';
+
+                  return (
+                    <button
+                      key={fruit.name}
+                      type="button"
+                      disabled={isPermanent}
+                      onClick={() => toggleFruitInSelection(fruit.name)}
+                      className={`p-2.5 rounded-xl border text-left flex items-center gap-3 transition-all cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-500/20 border-amber-500 text-white shadow-sm shadow-amber-500/10'
+                          : 'bg-zinc-950/60 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+                      } ${isPermanent ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      <img
+                        src={fruit.image}
+                        alt={fruit.name}
+                        className="w-8 h-8 rounded-lg object-contain bg-zinc-900 shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold truncate flex items-center gap-1">
+                          <span>{fruit.name}</span>
+                          {isSelected && <span className="text-amber-400 text-[10px]">✓</span>}
+                        </div>
+                        <div className="text-[10px] text-zinc-500 truncate">{fruit.thaiName}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-zinc-800 bg-zinc-950 flex items-center justify-between gap-3">
+              <span className="text-xs text-zinc-400">
+                เลือกแล้ว: <strong className="text-white">{tempSelectedFruits.length} ผล</strong>
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveInGameStock}
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 text-xs font-bold shadow-lg shadow-amber-500/20 cursor-pointer"
+                >
+                  บันทึกสต็อกในเกมทันที
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

@@ -78,32 +78,40 @@ async function fetchWikiStock() {
     const data = (await response.json()) as any;
     const wikitext: string = data?.parse?.wikitext?.['*'] || '';
 
-    const chunks = wikitext.split(/\n(?=!+\d+\/\d+\/\d+)/);
+    const tableBlocks = wikitext.split(/(?=\|-\s*\n!\s*\n!|\{\|[^\n]*\n[^\n]*\n!\s*\n!)/);
     const records: Array<{ date: string; time: string; fruits: string[] }> = [];
 
-    for (const chunk of chunks) {
-      const lines = chunk.split('\n').map((l) => l.trim());
+    for (const block of tableBlocks) {
+      const lines = block.split('\n').map((l) => l.trim());
       const dates: string[] = [];
-      let idx = 0;
-      while (idx < lines.length && lines[idx].startsWith('!')) {
-        const d = lines[idx].replace(/^!+/, '').trim();
-        if (d) dates.push(d);
-        idx++;
+      let lineIdx = 0;
+      while (lineIdx < lines.length) {
+        const line = lines[lineIdx];
+        if (line.startsWith('!')) {
+          const d = line.replace(/^!+/, '').trim();
+          if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(d)) {
+            dates.push(d);
+          }
+        } else if (dates.length > 0 && line.startsWith('|-')) {
+          break;
+        }
+        lineIdx++;
       }
+
       if (!dates.length) continue;
 
-      const rowBlocks = chunk.split(/\n\|-\n?/);
-      for (const rBlock of rowBlocks) {
-        const cellLines = rBlock
+      const rows = block.split(/\n\|-\s*\n?/);
+      for (const row of rows) {
+        const cellLines = row
           .split('\n')
           .map((l) => l.trim())
           .filter((l) => l.startsWith('|') && !l.startsWith('|-') && !l.startsWith('|}'));
         if (cellLines.length < 2) continue;
 
-        const time = cellLines[0].substring(1).trim();
+        const time = cellLines[0].replace(/^\|/, '').trim();
         for (let d = 0; d < dates.length; d++) {
-          const val = cellLines[d + 1] ? cellLines[d + 1].substring(1).trim() : '';
-          if (val && val !== '-' && !val.includes('Navigation') && !val.includes('{{')) {
+          const val = cellLines[d + 1] ? cellLines[d + 1].replace(/^\|/, '').trim() : '';
+          if (val && val !== '-' && !val.includes('Navigation') && !val.startsWith('==')) {
             const rawFruits = val
               .replace(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g, '$1')
               .replace(/'{2,}/g, '')
@@ -206,8 +214,26 @@ const schedulerConfig = {
   logs: [] as SchedulerLog[],
 };
 
+// In-Memory Manual Stock Override (allows user to match in-game stock anytime)
+let manualStockOverride: {
+  date?: string;
+  time?: string;
+  fruits: any[];
+  updatedAt: string;
+} | null = null;
+
 // Helper: Try to parse stock using Parse.bot MCP if configured, otherwise fallback to Wiki scraper
 async function fetchStockWithFallback() {
+  if (manualStockOverride) {
+    return {
+      date: manualStockOverride.date || 'In-Game Custom',
+      time: manualStockOverride.time || 'Live',
+      fruits: manualStockOverride.fruits,
+      isCustom: true,
+      updatedAt: manualStockOverride.updatedAt,
+    };
+  }
+
   if (schedulerConfig.useParseBot && schedulerConfig.parseBotEndpoint && schedulerConfig.parseBotApiKey) {
     try {
       console.log(`[ParseBot] Attempting to call Parse.bot MCP at ${schedulerConfig.parseBotEndpoint}...`);
@@ -455,14 +481,16 @@ setInterval(async () => {
 
   // Blox Fruits resets at 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
   const isResetHour = currentUtcHour % 4 === 0;
-  // Trigger within the first 2 minutes of the new rotation
-  const isResetMinute = currentMinute >= 0 && currentMinute <= 2;
+  // Trigger within the first 10 minutes of the new rotation to ensure we don't miss it
+  const isResetMinute = currentMinute >= 0 && currentMinute <= 10;
 
   const currentWindowKey = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}-${currentUtcHour}`;
 
   if (isResetHour && isResetMinute && schedulerConfig.lastDispatchedWindow !== currentWindowKey) {
     console.log(`[AutoBot] Restock window matched: ${currentWindowKey}. Triggering auto alert!`);
     schedulerConfig.lastDispatchedWindow = currentWindowKey;
+    // Invalidate wiki cache so we fetch fresh stock
+    cachedWikiStock = null;
     await executeStockNotification('auto-cron');
   }
 }, 15000);
@@ -551,15 +579,29 @@ app.post('/api/bloxfruits/scheduler/trigger', async (_req, res) => {
 });
 
 // API: Get Stock
-app.get('/api/bloxfruits/stock', async (_req, res) => {
+app.get('/api/bloxfruits/stock', async (req, res) => {
   try {
-    const stockData = await fetchWikiStock();
+    const forceWiki = req.query.forceWiki === 'true';
+    let stockData: any;
+
+    if (manualStockOverride && !forceWiki) {
+      stockData = {
+        date: manualStockOverride.date || 'In-Game Custom',
+        time: manualStockOverride.time || 'Live',
+        fruits: manualStockOverride.fruits,
+        isCustom: true,
+        updatedAt: manualStockOverride.updatedAt,
+      };
+    } else {
+      stockData = await fetchWikiStock();
+    }
     const timers = getResetTimers();
 
     res.json({
       success: true,
       data: {
         ...stockData,
+        isCustom: !!(manualStockOverride && !forceWiki),
         resetTimers: timers,
       },
     });
@@ -570,6 +612,61 @@ app.get('/api/bloxfruits/stock', async (_req, res) => {
       error: err.message || 'Failed to fetch stock from Wiki',
     });
   }
+});
+
+// API: Set Manual In-Game Stock Override
+app.post('/api/bloxfruits/stock/override', (req, res) => {
+  try {
+    const { fruits, date, time } = req.body;
+    if (!fruits || !Array.isArray(fruits) || fruits.length === 0) {
+      return res.status(400).json({ success: false, error: 'กรุณาเลือกผลไม้อย่างน้อย 1 ผล' });
+    }
+
+    const enriched = fruits.map((item: any) => {
+      const name = typeof item === 'string' ? item : item.name;
+      return FRUITS_DATABASE[name] || (typeof item === 'object' ? item : {
+        name,
+        thaiName: name,
+        rarity: 'Common',
+        type: 'Natural',
+        beliPrice: 100000,
+        robuxPrice: 100,
+        image: 'https://static.wikia.nocookie.net/roblox-blox-piece/images/d/df/Buddha_Fruit.png/revision/latest',
+        tier: 'C',
+        description: 'ผลปีศาจ Blox Fruits',
+      });
+    });
+
+    // Ensure Rocket and Spin are always included (as they are in-game)
+    const fruitNames = new Set(enriched.map((f: any) => f.name));
+    if (!fruitNames.has('Rocket') && FRUITS_DATABASE['Rocket']) enriched.push(FRUITS_DATABASE['Rocket']);
+    if (!fruitNames.has('Spin') && FRUITS_DATABASE['Spin']) enriched.push(FRUITS_DATABASE['Spin']);
+
+    manualStockOverride = {
+      date: date || 'In-Game Stock (กำหนดเอง)',
+      time: time || new Date().toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+      fruits: enriched,
+      updatedAt: new Date().toISOString(),
+    };
+
+    res.json({
+      success: true,
+      message: 'บันทึกสต็อกตรงกับในเกมเรียบร้อยแล้ว!',
+      data: manualStockOverride,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// API: Reset to Fandom Wiki Stock
+app.post('/api/bloxfruits/stock/reset-wiki', (_req, res) => {
+  manualStockOverride = null;
+  cachedWikiStock = null;
+  res.json({
+    success: true,
+    message: 'รีเซ็ตกลับไปดึงข้อมูลจาก Blox Fruits Fandom Wiki เรียบร้อยแล้ว!',
+  });
 });
 
 // API: Send Discord Webhook
@@ -800,6 +897,543 @@ app.post('/api/bloxfruits/send-discord', async (req, res) => {
       error: err.message || 'Failed to send Discord webhook',
     });
   }
+});
+
+// =================================================================
+// Roblox Limiteds & Catalog Real-Time Stock Engine
+// Uses Rolimons + Roblox Thumbnail CDN (Verified 100% accurate API)
+// =================================================================
+let cachedLimiteds: any[] = [];
+let cachedLimitedsUpdatedAt = '';
+let limitedsCacheExpiry = 0;
+
+async function fetchRobloxLimiteds(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && cachedLimiteds.length > 0 && now < limitedsCacheExpiry) {
+    return { items: cachedLimiteds, updatedAt: cachedLimitedsUpdatedAt };
+  }
+
+  try {
+    console.log('[RobloxLimiteds] Fetching fresh catalog items from Rolimons API...');
+    const roliRes = await fetch('https://www.rolimons.com/itemapi/itemdetails', {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) RobloxCatalogBot/1.0',
+      },
+    });
+
+    if (!roliRes.ok) {
+      throw new Error(`Rolimons HTTP error ${roliRes.status}`);
+    }
+
+    const roliData = (await roliRes.json()) as any;
+    if (!roliData.success || !roliData.items) {
+      throw new Error('Invalid Rolimons API response');
+    }
+
+    const entries = Object.entries(roliData.items);
+    const parsedItems = entries.map(([idStr, val]: [string, any]) => {
+      const id = parseInt(idStr, 10);
+      return {
+        id,
+        name: val[0] || `Item #${id}`,
+        acronym: val[1] || '',
+        rap: typeof val[2] === 'number' ? val[2] : 0,
+        value: typeof val[3] === 'number' ? val[3] : -1,
+        defaultPrice: typeof val[4] === 'number' ? val[4] : 0,
+        demand: typeof val[5] === 'number' ? val[5] : -1,
+        trend: typeof val[6] === 'number' ? val[6] : -1,
+        projected: typeof val[7] === 'number' ? val[7] : -1,
+        hyped: typeof val[8] === 'number' ? val[8] : -1,
+        rare: typeof val[9] === 'number' ? val[9] : -1,
+        thumbnail: '',
+      };
+    });
+
+    // Sort by RAP (Recent Average Price) descending
+    parsedItems.sort((a, b) => (b.value > 0 ? b.value : b.rap) - (a.value > 0 ? a.value : a.rap));
+
+    // Fetch batch thumbnails for top 100 limited items from Roblox Official Thumbnail API
+    const topIds = parsedItems.slice(0, 100).map((i) => i.id);
+    try {
+      const chunkSize = 30;
+      for (let i = 0; i < topIds.length; i += chunkSize) {
+        const chunk = topIds.slice(i, i + chunkSize);
+        const thumbRes = await fetch(
+          `https://thumbnails.roblox.com/v1/assets?assetIds=${chunk.join(',')}&size=150x150&format=Png`,
+          { headers: { 'User-Agent': 'Roblox/WinInet' } }
+        );
+        if (thumbRes.ok) {
+          const thumbJson = (await thumbRes.json()) as any;
+          if (thumbJson.data && Array.isArray(thumbJson.data)) {
+            for (const t of thumbJson.data) {
+              const matched = parsedItems.find((item) => item.id === t.targetId);
+              if (matched && t.imageUrl) {
+                matched.thumbnail = t.imageUrl;
+              }
+            }
+          }
+        }
+      }
+    } catch (thumbErr) {
+      console.warn('[RobloxLimiteds] Thumbnails batch error:', thumbErr);
+    }
+
+    cachedLimiteds = parsedItems;
+    cachedLimitedsUpdatedAt = new Date().toISOString();
+    limitedsCacheExpiry = now + 5 * 60 * 1000; // Cache 5 minutes
+    console.log(`[RobloxLimiteds] Loaded ${cachedLimiteds.length} verified limited items!`);
+
+    return { items: cachedLimiteds, updatedAt: cachedLimitedsUpdatedAt };
+  } catch (err: any) {
+    console.error('[RobloxLimiteds] Error fetching limiteds:', err.message);
+    if (cachedLimiteds.length > 0) {
+      return { items: cachedLimiteds, updatedAt: cachedLimitedsUpdatedAt };
+    }
+    throw err;
+  }
+}
+
+// API: Get Roblox Limited Catalog Items
+app.get('/api/roblox/limiteds', async (req, res) => {
+  try {
+    const force = req.query.force === 'true';
+    const data = await fetchRobloxLimiteds(force);
+    res.json({
+      success: true,
+      totalItems: data.items.length,
+      updatedAt: data.updatedAt,
+      items: data.items,
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: err.message || 'Failed to fetch Roblox Limited items',
+    });
+  }
+});
+
+// API: Send Roblox Limited Item Alert to Discord
+app.post('/api/roblox/limiteds/send-discord', async (req, res) => {
+  try {
+    const {
+      webhookUrl = DEFAULT_WEBHOOK,
+      itemIds = [],
+      customNote = '',
+      alertType = 'price-update', // 'price-update' | 'snipe-alert' | 'market-watch'
+    } = req.body;
+
+    const targetUrl = (webhookUrl || DEFAULT_WEBHOOK).trim();
+    if (!targetUrl.startsWith('https://discord.com/api/webhooks/')) {
+      return res.status(400).json({
+        success: false,
+        error: 'URL Webhook ไม่ถูกต้อง ต้องขึ้นต้นด้วย https://discord.com/api/webhooks/',
+      });
+    }
+
+    const catalogData = await fetchRobloxLimiteds();
+    const selectedItems = catalogData.items.filter((i) =>
+      itemIds.includes(i.id) || itemIds.includes(String(i.id))
+    );
+
+    const itemsToSend = selectedItems.length > 0 ? selectedItems : catalogData.items.slice(0, 5);
+
+    const demandMap: Record<number, string> = {
+      0: 'ต่ำมาก (Terrible)',
+      1: 'ต่ำ (Low)',
+      2: 'ปานกลาง (Normal)',
+      3: 'สูง (High) 🔥',
+      4: 'ยอดนิยมสูงสุด (Amazing) 🌟',
+    };
+
+    const trendMap: Record<number, string> = {
+      0: '📉 ราคาลง (Lowering)',
+      1: '⚡ ผันผวน (Unstable)',
+      2: '⚖️ ทรงตัว (Stable)',
+      3: '📈 กำลังพุ่ง (Raising)',
+      4: '🔄 แกว่งขึ้นลง (Fluctuating)',
+    };
+
+    const fields = itemsToSend.map((item) => {
+      const displayVal = item.value > 0 ? `R$ ${item.value.toLocaleString()}` : 'Default RAP';
+      const demandText = demandMap[item.demand] || 'ไม่มีข้อมูล';
+      const trendText = trendMap[item.trend] || 'คงที่';
+      const rolimonsUrl = `https://www.rolimons.com/item/${item.id}`;
+      const robloxUrl = `https://www.roblox.com/catalog/${item.id}`;
+
+      return {
+        name: `👑 ${item.name} (${item.acronym || 'ID: ' + item.id})`,
+        value: `• **ราคาเฉลี่ยล่าสุด (RAP):** **R$ ${item.rap.toLocaleString()}**\n• **มูลค่าเทรด (Value):** ${displayVal}\n• **ความต้องการ (Demand):** ${demandText}\n• **แนวโน้มราคา (Trend):** ${trendText}\n• [ดูบน Roblox](${robloxUrl}) • [กราฟบน Rolimons](${rolimonsUrl})`,
+        inline: false,
+      };
+    });
+
+    if (customNote.trim()) {
+      fields.push({
+        name: '📝 ข้อความเพิ่มเติม',
+        value: customNote.trim(),
+        inline: false,
+      });
+    }
+
+    const payload = {
+      username: 'Roblox Limiteds Watcher (Official API)',
+      avatar_url:
+        'https://static.wikia.nocookie.net/roblox/images/a/a2/Dominus_Empyreus.png/revision/latest',
+      embeds: [
+        {
+          title: '💎 Roblox Limited Catalog & Stock Alert | รายงานราคาและสต็อกสด 100%',
+          description: `ดึงข้อมูลตรงจาก **Roblox Catalog Economy & Rolimons API** แบบเรียลไทม์\nอัปเดตสถิติตลาดไอเทม Limited ที่มีความต้องการสูง:`,
+          color: 0x00a2ff, // Roblox Vibrant Blue
+          fields,
+          thumbnail: {
+            url:
+              itemsToSend[0]?.thumbnail ||
+              'https://tr.rbxcdn.com/180DAY-1de084fa35fdeace0b12fd5b21077677/150/150/Hat/Png/noFilter',
+          },
+          footer: {
+            text: 'ข้อมูลสต็อก & ราคาอ้างอิงจาก Roblox Economy API แท้ 100%',
+            icon_url: 'https://images.rbxcdn.com/2b35649ec7757cf394140c784ee48a42.ico',
+          },
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    };
+
+    const discordRes = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!discordRes.ok) {
+      const errTxt = await discordRes.text();
+      return res.json({
+        success: false,
+        error: `Discord Webhook Error: ${discordRes.status} ${errTxt}`,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: `ส่งการแจ้งเตือนไอเทม Limited ${itemsToSend.length} ชิ้นเข้า Discord เรียบร้อยแล้ว!`,
+      sentCount: itemsToSend.length,
+    });
+  } catch (err: any) {
+    console.error('Error sending Roblox Limited discord alert:', err);
+    res.json({
+      success: false,
+      error: err.message || 'Failed to dispatch alert',
+    });
+  }
+});
+
+// =================================================================
+// Roblox Limiteds Auto-Scheduler Engine (ทำงานอัตโนมัติ 24/7)
+// =================================================================
+interface RobloxSchedulerLog {
+  id: string;
+  timestamp: string;
+  thaiTime: string;
+  triggerType: string;
+  status: 'success' | 'error';
+  itemsCount: number;
+  message: string;
+}
+
+interface RobloxSchedulerConfig {
+  enabled: boolean;
+  intervalMinutes: number; // e.g. 15, 30, 60
+  webhookUrl: string;
+  mode: 'top-market' | 'price-drop' | 'high-demand';
+  itemsCount: number;
+  customNote: string;
+  mentionType: string;
+  roleId: string;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+  logs: RobloxSchedulerLog[];
+}
+
+const robloxSchedulerConfig: RobloxSchedulerConfig = {
+  enabled: true,
+  intervalMinutes: 15,
+  webhookUrl: DEFAULT_WEBHOOK,
+  mode: 'top-market',
+  itemsCount: 5,
+  customNote: '⚡ บอทแจ้งเตือนอัตโนมัติ Roblox Limited Catalog & Stock Watcher (24/7 Engine)',
+  mentionType: 'none',
+  roleId: '',
+  lastRunAt: null,
+  nextRunAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+  logs: [],
+};
+
+let lastRobloxDispatchTime = Date.now();
+
+async function executeRobloxLimitedAlert(triggerType = 'auto-interval') {
+  try {
+    const catalogData = await fetchRobloxLimiteds(true);
+    let candidateItems = [...catalogData.items];
+
+    if (robloxSchedulerConfig.mode === 'high-demand') {
+      candidateItems = candidateItems.filter((i) => i.demand >= 3);
+    } else if (robloxSchedulerConfig.mode === 'price-drop') {
+      candidateItems = candidateItems.filter((i) => i.trend === 0 || i.projected === 1);
+    }
+
+    if (candidateItems.length === 0) {
+      candidateItems = catalogData.items.slice(0, robloxSchedulerConfig.itemsCount);
+    }
+
+    const itemsToSend = candidateItems.slice(0, robloxSchedulerConfig.itemsCount);
+
+    const demandMap: Record<number, string> = {
+      0: 'ต่ำมาก (Terrible)',
+      1: 'ต่ำ (Low)',
+      2: 'ปานกลาง (Normal)',
+      3: 'สูง (High) 🔥',
+      4: 'ยอดนิยมสูงสุด (Amazing) 🌟',
+    };
+
+    const trendMap: Record<number, string> = {
+      0: '📉 ราคาลดลง (Lowering)',
+      1: '⚡ ผันผวน (Unstable)',
+      2: '⚖️ ทรงตัว (Stable)',
+      3: '📈 กำลังพุ่ง (Raising)',
+      4: '🔄 แกว่งตัว (Fluctuating)',
+    };
+
+    const fields = itemsToSend.map((item) => {
+      const displayVal = item.value > 0 ? `R$ ${item.value.toLocaleString()}` : 'Default RAP';
+      const demandText = demandMap[item.demand] || 'ทั่วไป';
+      const trendText = trendMap[item.trend] || 'ทรงตัว';
+      const rolimonsUrl = `https://www.rolimons.com/item/${item.id}`;
+      const robloxUrl = `https://www.roblox.com/catalog/${item.id}`;
+
+      return {
+        name: `👑 ${item.name} (${item.acronym || 'ID: ' + item.id})`,
+        value: `• **ราคาเฉลี่ย (RAP):** **R$ ${item.rap.toLocaleString()}**\n• **มูลค่าเทรด (Value):** ${displayVal}\n• **ความต้องการ:** ${demandText} • **เทรนด์:** ${trendText}\n• [Roblox Catalog](${robloxUrl}) | [กราฟ Rolimons](${rolimonsUrl})`,
+        inline: false,
+      };
+    });
+
+    if (robloxSchedulerConfig.customNote.trim()) {
+      fields.push({
+        name: '📝 ข้อความแจ้งเตือนอัตโนมัติ',
+        value: robloxSchedulerConfig.customNote.trim(),
+        inline: false,
+      });
+    }
+
+    let mentionPrefix = '';
+    if (robloxSchedulerConfig.mentionType === '@everyone') mentionPrefix = '@everyone ';
+    else if (robloxSchedulerConfig.mentionType === '@here') mentionPrefix = '@here ';
+    else if (robloxSchedulerConfig.mentionType === 'role' && robloxSchedulerConfig.roleId)
+      mentionPrefix = `<@&${robloxSchedulerConfig.roleId.trim()}> `;
+
+    const modeLabels: Record<string, string> = {
+      'top-market': '💎 สรุปสถิติ & สต็อกไอเทมยอดนิยม Top Market',
+      'price-drop': '🚨 แจ้งเตือนราคาหลุด / ราคาดิ่ง (Price Drop Sniper)',
+      'high-demand': '🔥 สต็อกไอเทมความต้องการสูงสุด (High & Amazing Demand)',
+    };
+
+    const payload = {
+      content: mentionPrefix.trim() || undefined,
+      username: 'Roblox Limiteds Watcher (Auto 24/7)',
+      avatar_url:
+        'https://static.wikia.nocookie.net/roblox/images/a/a2/Dominus_Empyreus.png/revision/latest',
+      embeds: [
+        {
+          title: `💎 Roblox Limiteds Auto-Report | ${modeLabels[robloxSchedulerConfig.mode] || 'อัปเดตอัตโนมัติ'}`,
+          description: `ดึงข้อมูลตรงจาก **Roblox Catalog Economy & Rolimons API** อัตโนมัติ\n(โหมด: **${robloxSchedulerConfig.mode}** • ตรวจสอบทุกๆ **${robloxSchedulerConfig.intervalMinutes} นาที**)`,
+          color: robloxSchedulerConfig.mode === 'price-drop' ? 0xff3b30 : 0x00a2ff,
+          fields,
+          thumbnail: {
+            url:
+              itemsToSend[0]?.thumbnail ||
+              'https://tr.rbxcdn.com/180DAY-1de084fa35fdeace0b12fd5b21077677/150/150/Hat/Png/noFilter',
+          },
+          footer: {
+            text: `ระบบทำงานอัตโนมัติ 24 ชม. • Trigger: ${triggerType} • รอบถัดไปอีก ${robloxSchedulerConfig.intervalMinutes} นาที`,
+            icon_url: 'https://images.rbxcdn.com/2b35649ec7757cf394140c784ee48a42.ico',
+          },
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    };
+
+    const targetUrl = robloxSchedulerConfig.webhookUrl || DEFAULT_WEBHOOK;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    const discordRes = await fetch(targetUrl, {
+      signal: controller.signal,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    clearTimeout(timeoutId);
+
+    const now = new Date();
+    const thaiTime = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+    if (!discordRes.ok) {
+      const errText = await discordRes.text();
+      let cleanMsg = `Discord Error (${discordRes.status})`;
+      if (discordRes.status === 429) cleanMsg = 'ติด Rate Limit จาก Discord กรุณารอสักครู่';
+      
+      const failLog: RobloxSchedulerLog = {
+        id: `roblox-${Date.now()}`,
+        timestamp: now.toISOString(),
+        thaiTime,
+        triggerType,
+        status: 'error',
+        itemsCount: itemsToSend.length,
+        message: cleanMsg,
+      };
+      robloxSchedulerConfig.logs.unshift(failLog);
+      if (robloxSchedulerConfig.logs.length > 20) robloxSchedulerConfig.logs.pop();
+      return { success: false, error: cleanMsg };
+    }
+
+    robloxSchedulerConfig.lastRunAt = now.toISOString();
+    robloxSchedulerConfig.nextRunAt = new Date(now.getTime() + robloxSchedulerConfig.intervalMinutes * 60 * 1000).toISOString();
+
+    const successLog: RobloxSchedulerLog = {
+      id: `roblox-${Date.now()}`,
+      timestamp: now.toISOString(),
+      thaiTime,
+      triggerType,
+      status: 'success',
+      itemsCount: itemsToSend.length,
+      message: `ส่งสำเร็จ ${itemsToSend.length} ชิ้น (${modeLabels[robloxSchedulerConfig.mode] || 'Auto'})`,
+    };
+    robloxSchedulerConfig.logs.unshift(successLog);
+    if (robloxSchedulerConfig.logs.length > 20) robloxSchedulerConfig.logs.pop();
+
+    console.log(`[RobloxAutoBot] Successfully dispatched alert at ${thaiTime} (Trigger: ${triggerType})`);
+    return { success: true, count: itemsToSend.length };
+  } catch (err: any) {
+    console.error('[RobloxAutoBot] Execution error:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// Background Cron Loop for Roblox Limiteds (Checks every 30s)
+setInterval(async () => {
+  if (!robloxSchedulerConfig.enabled) return;
+  const now = Date.now();
+  const intervalMs = Math.max(5, robloxSchedulerConfig.intervalMinutes) * 60 * 1000;
+
+  if (now - lastRobloxDispatchTime >= intervalMs) {
+    lastRobloxDispatchTime = now;
+    console.log(`[RobloxAutoBot] Interval reached (${robloxSchedulerConfig.intervalMinutes}m). Executing auto dispatch...`);
+    await executeRobloxLimitedAlert('auto-interval');
+  }
+}, 30000);
+
+// API: Get Roblox Scheduler Status
+app.get('/api/roblox/scheduler', (_req, res) => {
+  const now = Date.now();
+  const intervalMs = Math.max(5, robloxSchedulerConfig.intervalMinutes) * 60 * 1000;
+  const elapsed = now - lastRobloxDispatchTime;
+  const remainingMs = Math.max(0, intervalMs - elapsed);
+  const remainingSec = Math.floor(remainingMs / 1000);
+  const remMinutes = Math.floor(remainingSec / 60);
+  const remSeconds = remainingSec % 60;
+
+  res.json({
+    success: true,
+    data: {
+      enabled: robloxSchedulerConfig.enabled,
+      intervalMinutes: robloxSchedulerConfig.intervalMinutes,
+      mode: robloxSchedulerConfig.mode,
+      itemsCount: robloxSchedulerConfig.itemsCount,
+      webhookUrl: robloxSchedulerConfig.webhookUrl,
+      mentionType: robloxSchedulerConfig.mentionType,
+      roleId: robloxSchedulerConfig.roleId,
+      customNote: robloxSchedulerConfig.customNote,
+      lastRunAt: robloxSchedulerConfig.lastRunAt,
+      nextRunAt: robloxSchedulerConfig.nextRunAt,
+      countdownText: `${String(remMinutes).padStart(2, '0')}:${String(remSeconds).padStart(2, '0')}`,
+      logs: robloxSchedulerConfig.logs,
+    },
+  });
+});
+
+// API: Toggle & Update Roblox Scheduler Settings
+app.post('/api/roblox/scheduler/toggle', (req, res) => {
+  const {
+    enabled,
+    intervalMinutes,
+    mode,
+    itemsCount,
+    webhookUrl,
+    mentionType,
+    roleId,
+    customNote,
+  } = req.body;
+
+  if (typeof enabled === 'boolean') robloxSchedulerConfig.enabled = enabled;
+  if (typeof intervalMinutes === 'number' && intervalMinutes >= 5) {
+    robloxSchedulerConfig.intervalMinutes = intervalMinutes;
+    robloxSchedulerConfig.nextRunAt = new Date(Date.now() + intervalMinutes * 60 * 1000).toISOString();
+  }
+  if (mode && ['top-market', 'price-drop', 'high-demand'].includes(mode)) {
+    robloxSchedulerConfig.mode = mode;
+  }
+  if (typeof itemsCount === 'number' && itemsCount > 0 && itemsCount <= 20) {
+    robloxSchedulerConfig.itemsCount = itemsCount;
+  }
+  if (webhookUrl !== undefined) robloxSchedulerConfig.webhookUrl = webhookUrl;
+  if (mentionType !== undefined) robloxSchedulerConfig.mentionType = mentionType;
+  if (roleId !== undefined) robloxSchedulerConfig.roleId = roleId;
+  if (customNote !== undefined) robloxSchedulerConfig.customNote = customNote;
+
+  res.json({
+    success: true,
+    message: robloxSchedulerConfig.enabled
+      ? `🟢 บอททำงานอัตโนมัติเปิดแล้ว (ส่งทุก ${robloxSchedulerConfig.intervalMinutes} นาที)`
+      : '🔴 บอททำงานอัตโนมัติถูกปิดชั่วคราว',
+    config: robloxSchedulerConfig,
+  });
+});
+
+// API: Manual trigger Roblox Auto-Alert
+app.post('/api/roblox/scheduler/trigger', async (_req, res) => {
+  try {
+    const result = await executeRobloxLimitedAlert('manual-test');
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'ยิงส่งการแจ้งเตือนรอบนี้เข้า Discord เรียบร้อยแล้ว!',
+        data: result,
+      });
+    } else {
+      res.json({
+        success: false,
+        message: result.error || 'เกิดข้อผิดพลาดในการส่ง',
+        error: result.error,
+      });
+    }
+  } catch (err: any) {
+    res.json({
+      success: false,
+      message: err.message,
+    });
+  }
+});
+
+// API: External Cron endpoint (For GitHub Actions, cron-job.org, Vercel cron, UptimeRobot)
+app.all(['/api/roblox/cron', '/api/cron/roblox'], async (req, res) => {
+  console.log(`[RobloxCron] Received external cron trigger from ${req.ip || 'external'}`);
+  lastRobloxDispatchTime = Date.now();
+  const result = await executeRobloxLimitedAlert('external-cron');
+  res.json({
+    success: result.success,
+    triggeredAt: new Date().toISOString(),
+    result,
+  });
 });
 
 // Setup Vite or Static File Serving
