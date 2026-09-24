@@ -1,0 +1,6 @@
+{
+  "name": "Blox Fruits Stock Discord Notifier",
+  "description": "ระบบดึงข้อมูลสต็อกผลไม้ Blox Fruits จาก Wiki ส่งแจ้งเตือน Discord Webhook อัตโนมัติ พร้อมโค้ด TypeScript สำหรับนำไปติดตั้งบน Vercel Cron",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
