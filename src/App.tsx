@@ -46,17 +46,24 @@ export default function App() {
     setApiError(null);
     try {
       const res = await fetch('/api/bloxfruits/stock');
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setStockFruits(data.data.fruits);
-        setRotationDate(data.data.date);
-        setRotationTime(data.data.time);
+      const text = await res.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        data = { success: false, error: text };
+      }
+
+      if (data && data.success && data.data) {
+        setStockFruits(data.data.fruits || []);
+        setRotationDate(data.data.date || 'Current');
+        setRotationTime(data.data.time || 'Live');
         if (data.data.resetTimers) {
           setNextResetThai(data.data.resetTimers.thaiFormatted);
           setTimestampSec(data.data.resetTimers.timestampSec);
         }
       } else {
-        setApiError(data.error || 'Failed to fetch');
+        setApiError(data?.error || 'Failed to fetch');
       }
     } catch (err: any) {
       console.warn('Using client-side fallback stock:', err);

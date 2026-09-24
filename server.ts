@@ -45,96 +45,134 @@ function getResetTimers() {
   };
 }
 
-// Helper: Fetch and parse Blox Fruits Wiki
-async function fetchWikiStock() {
-  const url = 'https://blox-fruits.fandom.com/api.php?action=parse&page=History_of_Stock&format=json&prop=wikitext';
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) BloxFruitsStockNotifier/1.0',
-    },
-  });
+// ==========================================
+// In-Memory Wiki Cache & Fallback
+// ==========================================
+let cachedWikiStock: any = null;
+let wikiCacheExpiry = 0;
 
-  if (!response.ok) {
-    throw new Error(`Wiki API responded with status ${response.status}`);
+// Helper: Fetch and parse Blox Fruits Wiki with cache and timeout
+async function fetchWikiStock() {
+  const now = Date.now();
+  if (cachedWikiStock && now < wikiCacheExpiry) {
+    return cachedWikiStock;
   }
 
-  const data = (await response.json()) as any;
-  const wikitext: string = data?.parse?.wikitext?.['*'] || '';
+  try {
+    const url = 'https://blox-fruits.fandom.com/api.php?action=parse&page=History_of_Stock&format=json&prop=wikitext';
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-  const chunks = wikitext.split(/\n(?=!+\d+\/\d+\/\d+)/);
-  const records: Array<{ date: string; time: string; fruits: string[] }> = [];
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) BloxFruitsStockNotifier/1.0',
+      },
+    });
+    clearTimeout(timeoutId);
 
-  for (const chunk of chunks) {
-    const lines = chunk.split('\n').map((l) => l.trim());
-    const dates: string[] = [];
-    let idx = 0;
-    while (idx < lines.length && lines[idx].startsWith('!')) {
-      const d = lines[idx].replace(/^!+/, '').trim();
-      if (d) dates.push(d);
-      idx++;
+    if (!response.ok) {
+      throw new Error(`Wiki API responded with status ${response.status}`);
     }
-    if (!dates.length) continue;
 
-    const rowBlocks = chunk.split(/\n\|-\n?/);
-    for (const rBlock of rowBlocks) {
-      const cellLines = rBlock
-        .split('\n')
-        .map((l) => l.trim())
-        .filter((l) => l.startsWith('|') && !l.startsWith('|-') && !l.startsWith('|}'));
-      if (cellLines.length < 2) continue;
+    const data = (await response.json()) as any;
+    const wikitext: string = data?.parse?.wikitext?.['*'] || '';
 
-      const time = cellLines[0].substring(1).trim();
-      for (let d = 0; d < dates.length; d++) {
-        const val = cellLines[d + 1] ? cellLines[d + 1].substring(1).trim() : '';
-        if (val && val !== '-' && !val.includes('Navigation') && !val.includes('{{')) {
-          const rawFruits = val
-            .replace(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g, '$1')
-            .replace(/'{2,}/g, '')
-            .split(',')
-            .map((f) => f.trim())
-            .filter(Boolean);
+    const chunks = wikitext.split(/\n(?=!+\d+\/\d+\/\d+)/);
+    const records: Array<{ date: string; time: string; fruits: string[] }> = [];
 
-          if (rawFruits.length > 0) {
-            records.push({ date: dates[d], time, fruits: rawFruits });
+    for (const chunk of chunks) {
+      const lines = chunk.split('\n').map((l) => l.trim());
+      const dates: string[] = [];
+      let idx = 0;
+      while (idx < lines.length && lines[idx].startsWith('!')) {
+        const d = lines[idx].replace(/^!+/, '').trim();
+        if (d) dates.push(d);
+        idx++;
+      }
+      if (!dates.length) continue;
+
+      const rowBlocks = chunk.split(/\n\|-\n?/);
+      for (const rBlock of rowBlocks) {
+        const cellLines = rBlock
+          .split('\n')
+          .map((l) => l.trim())
+          .filter((l) => l.startsWith('|') && !l.startsWith('|-') && !l.startsWith('|}'));
+        if (cellLines.length < 2) continue;
+
+        const time = cellLines[0].substring(1).trim();
+        for (let d = 0; d < dates.length; d++) {
+          const val = cellLines[d + 1] ? cellLines[d + 1].substring(1).trim() : '';
+          if (val && val !== '-' && !val.includes('Navigation') && !val.includes('{{')) {
+            const rawFruits = val
+              .replace(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g, '$1')
+              .replace(/'{2,}/g, '')
+              .split(',')
+              .map((f) => f.trim())
+              .filter(Boolean);
+
+            if (rawFruits.length > 0) {
+              records.push({ date: dates[d], time, fruits: rawFruits });
+            }
           }
         }
       }
     }
-  }
 
-  let latestRecord = records[records.length - 1];
-  if (!latestRecord) {
-    latestRecord = {
-      date: 'Current Rotation',
-      time: '12:00 AM',
-      fruits: ['Magma', 'Quake', 'Spider'],
+    let latestRecord = records[records.length - 1];
+    if (!latestRecord) {
+      latestRecord = {
+        date: 'Current Rotation',
+        time: '12:00 AM',
+        fruits: ['Magma', 'Quake', 'Spider'],
+      };
+    }
+
+    // Ensure permanent stock fruits (Rocket, Spin) are included
+    const enrichedFruitNames = Array.from(new Set([...latestRecord.fruits, 'Rocket', 'Spin']));
+    const enrichedFruits = enrichedFruitNames.map((name) => {
+      const matched = FRUITS_DATABASE[name] || {
+        name,
+        thaiName: name,
+        rarity: 'Common' as const,
+        type: 'Natural' as const,
+        beliPrice: 100000,
+        robuxPrice: 100,
+        image: 'https://static.wikia.nocookie.net/roblox-blox-piece/images/d/df/Buddha_Fruit.png/revision/latest',
+        tier: 'C' as const,
+        description: 'ผลปีศาจในเกม Blox Fruits',
+      };
+      return matched;
+    });
+
+    const parsedResult = {
+      date: latestRecord.date,
+      time: latestRecord.time,
+      fruits: enrichedFruits,
+      historyCount: records.length,
+      recentHistory: records.slice(-5),
+    };
+
+    cachedWikiStock = parsedResult;
+    wikiCacheExpiry = Date.now() + 3 * 60 * 1000; // Cache 3 minutes
+    return parsedResult;
+  } catch (err: any) {
+    console.warn('[Wiki] Warning fetching live Wiki stock:', err.message);
+    if (cachedWikiStock) {
+      return cachedWikiStock;
+    }
+    // Reliable static default if Wiki is unreachable
+    const defaultFruits = ['Blade', 'Spring', 'Ice', 'Magma', 'Rocket', 'Spin'].map(
+      (n) => FRUITS_DATABASE[n] || { name: n, thaiName: n, rarity: 'Common' as const, type: 'Natural' as const, beliPrice: 50000, robuxPrice: 50 }
+    );
+    return {
+      date: new Date().toLocaleDateString('en-US'),
+      time: 'Live Stock',
+      fruits: defaultFruits,
+      historyCount: 1,
+      recentHistory: [],
     };
   }
-
-  // Ensure permanent stock fruits (Rocket, Spin) are included
-  const enrichedFruitNames = Array.from(new Set([...latestRecord.fruits, 'Rocket', 'Spin']));
-  const enrichedFruits = enrichedFruitNames.map((name) => {
-    const matched = FRUITS_DATABASE[name] || {
-      name,
-      thaiName: name,
-      rarity: 'Common' as const,
-      type: 'Natural' as const,
-      beliPrice: 100000,
-      robuxPrice: 100,
-      image: 'https://static.wikia.nocookie.net/roblox-blox-piece/images/d/df/Buddha_Fruit.png/revision/latest',
-      tier: 'C' as const,
-      description: 'ผลปีศาจในเกม Blox Fruits',
-    };
-    return matched;
-  });
-
-  return {
-    date: latestRecord.date,
-    time: latestRecord.time,
-    fruits: enrichedFruits,
-    historyCount: records.length,
-    recentHistory: records.slice(-5),
-  };
 }
 
 // ==========================================
@@ -340,17 +378,30 @@ async function executeStockNotification(triggerType: 'auto-cron' | 'manual-test'
     };
 
     const targetUrl = schedulerConfig.webhookUrl || DEFAULT_WEBHOOK;
-    const discordRes = await fetch(targetUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    let discordRes: Response;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      discordRes = await fetch(targetUrl, {
+        signal: controller.signal,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      clearTimeout(timeoutId);
+    } catch (netErr: any) {
+      return { success: false, error: `Network timeout หรือเชื่อมต่อ Discord ไม่สำเร็จ (${netErr.message})` };
+    }
 
     const now = new Date();
     const thaiTime = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
     if (!discordRes.ok) {
       const errText = await discordRes.text();
+      let cleanMsg = `Discord Error (${discordRes.status})`;
+      if (discordRes.status === 429) {
+        cleanMsg = 'ติด Rate Limit (Discord กำลังจำกัดความถี่การส่ง กรุณารอ 2-3 วินาที)';
+      }
       const failLog: SchedulerLog = {
         id: `log-${Date.now()}`,
         timestamp: now.toISOString(),
@@ -360,11 +411,11 @@ async function executeStockNotification(triggerType: 'auto-cron' | 'manual-test'
         fruits: stockFruits.map((f: any) => f.name),
         hasMythical,
         hasLegendary,
-        message: `Discord Error: ${errText.substring(0, 100)}`,
+        message: cleanMsg,
       };
       schedulerConfig.logs.unshift(failLog);
       if (schedulerConfig.logs.length > 20) schedulerConfig.logs.pop();
-      return { success: false, error: errText };
+      return { success: false, error: cleanMsg };
     }
 
     schedulerConfig.lastRunAt = now.toISOString();
@@ -473,18 +524,28 @@ app.post('/api/bloxfruits/scheduler/toggle', (req, res) => {
 
 // API: Manual trigger from scheduler
 app.post('/api/bloxfruits/scheduler/trigger', async (_req, res) => {
-  const result = await executeStockNotification('manual-test');
-  if (result.success) {
+  try {
+    const result = await executeStockNotification('manual-test');
+    if (result.success) {
+      res.json({
+        success: true,
+        message: 'ยิงส่งแจ้งเตือนอัตโนมัติเรียบร้อยแล้ว!',
+        data: result,
+      });
+    } else {
+      res.json({
+        success: false,
+        message: result.error?.includes('429')
+          ? '⚠️ Discord กำลังจำกัดความถี่การส่ง (Rate Limit) กรุณารอสัก 2-3 วินาทีแล้วลองกดส่งใหม่ครับ'
+          : `เกิดข้อผิดพลาดในการส่ง: ${result.error}`,
+        error: result.error,
+      });
+    }
+  } catch (err: any) {
     res.json({
-      success: true,
-      message: 'ยิงส่งแจ้งเตือนอัตโนมัติเรียบร้อยแล้ว!',
-      data: result,
-    });
-  } else {
-    res.status(500).json({
       success: false,
-      message: 'เกิดข้อผิดพลาดในการส่ง',
-      error: result.error,
+      message: 'เกิดข้อผิดพลาดในการประมวลผล',
+      error: err.message,
     });
   }
 });
@@ -676,23 +737,55 @@ app.post('/api/bloxfruits/send-discord', async (req, res) => {
       ],
     };
 
-    const discordRes = await fetch(targetWebhook, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
+    let discordRes: Response;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-    if (!discordRes.ok) {
-      const errText = await discordRes.text();
-      return res.status(discordRes.status).json({
+      discordRes = await fetch(targetWebhook, {
+        signal: controller.signal,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      clearTimeout(timeoutId);
+    } catch (netErr: any) {
+      return res.json({
         success: false,
-        error: `Discord Webhook error (${discordRes.status}): ${errText}`,
+        error: `ไม่สามารถเชื่อมต่อไปยัง Discord Webhook ได้: ${netErr.message || 'Timeout / Network Error'}`,
       });
     }
 
-    res.json({
+    if (!discordRes.ok) {
+      const errText = await discordRes.text();
+      let cleanErrorMessage = `Discord Webhook error (${discordRes.status})`;
+
+      if (discordRes.status === 429) {
+        let retrySeconds = 2;
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed.retry_after) retrySeconds = Math.ceil(parsed.retry_after);
+        } catch {}
+        cleanErrorMessage = `⚠️ Discord กำลังจำกัดความถี่การส่ง (Rate Limit): กรุณารอสัก ${retrySeconds} วินาทีแล้วลองกดใหม่อีกครั้งครับ`;
+      } else {
+        try {
+          const parsed = JSON.parse(errText);
+          if (parsed.message) cleanErrorMessage = `Discord: ${parsed.message}`;
+        } catch {
+          if (errText) cleanErrorMessage = `Discord: ${errText.substring(0, 150)}`;
+        }
+      }
+
+      return res.json({
+        success: false,
+        isRateLimit: discordRes.status === 429,
+        error: cleanErrorMessage,
+      });
+    }
+
+    return res.json({
       success: true,
       message: 'ส่งข้อความแจ้งเตือนไปยัง Discord Webhook เรียบร้อยแล้ว!',
       fruitsCount: stockFruits.length,
@@ -702,7 +795,7 @@ app.post('/api/bloxfruits/send-discord', async (req, res) => {
     });
   } catch (err: any) {
     console.error('Error sending discord webhook:', err);
-    res.status(500).json({
+    return res.json({
       success: false,
       error: err.message || 'Failed to send Discord webhook',
     });

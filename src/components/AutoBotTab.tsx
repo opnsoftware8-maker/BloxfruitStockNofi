@@ -77,12 +77,31 @@ export const AutoBotTab: React.FC = () => {
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [showGuide, setShowGuide] = useState(true);
 
+  // Safe JSON response parser
+  const safeParse = async (res: Response) => {
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      if (text.toLowerCase().includes('too many') || res.status === 429) {
+        return {
+          success: false,
+          error: '⚠️ Discord กำลังจำกัดความถี่การส่ง (Rate Limit) กรุณารอสัก 2-3 วินาทีแล้วลองใหม่ครับ',
+        };
+      }
+      return {
+        success: false,
+        error: text.substring(0, 150) || 'เซิร์ฟเวอร์ตอบกลับไม่ถูกต้อง',
+      };
+    }
+  };
+
   // Fetch scheduler status from server
   const fetchStatus = async () => {
     try {
       const res = await fetch('/api/bloxfruits/scheduler');
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const data = await safeParse(res);
+      if (data && data.success && data.data) {
         setScheduler(data.data);
       }
     } catch (err) {
@@ -115,8 +134,8 @@ export const AutoBotTab: React.FC = () => {
           useParseBot: scheduler.useParseBot,
         }),
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const data = await safeParse(res);
+      if (data && data.success) {
         setScheduler((prev) => ({ ...prev, enabled: newEnabled }));
         setFeedback({
           type: 'success',
@@ -124,6 +143,8 @@ export const AutoBotTab: React.FC = () => {
             ? '🟢 เปิดระบบส่งอัตโนมัติทุก 4 ชั่วโมงเรียบร้อยแล้ว! (บอทจะคอยจับเวลาร้านรีสต็อกตลอดเวลา)'
             : '🔴 ปิดระบบส่งอัตโนมัติชั่วคราวแล้ว',
         });
+      } else {
+        setFeedback({ type: 'error', message: data?.error || 'ไม่สามารถบันทึกได้' });
       }
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message });
@@ -151,9 +172,11 @@ export const AutoBotTab: React.FC = () => {
           useParseBot: scheduler.useParseBot,
         }),
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const data = await safeParse(res);
+      if (data && data.success) {
         setFeedback({ type: 'success', message: '💾 บันทึกการตั้งค่าบอทและ Parse.bot MCP สำเร็จแล้ว!' });
+      } else {
+        setFeedback({ type: 'error', message: data?.error || 'เกิดข้อผิดพลาดในการบันทึก' });
       }
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message });
@@ -170,8 +193,8 @@ export const AutoBotTab: React.FC = () => {
       const res = await fetch('/api/bloxfruits/scheduler/trigger', {
         method: 'POST',
       });
-      const data = await res.json();
-      if (res.ok && data.success) {
+      const data = await safeParse(res);
+      if (data && data.success) {
         setFeedback({
           type: 'success',
           message: '🚀 ส่งการแจ้งเตือนรอบนี้เข้า Discord เรียบร้อยแล้ว! (ตรวจดูใน Discord ได้ทันที)',
@@ -180,11 +203,16 @@ export const AutoBotTab: React.FC = () => {
       } else {
         setFeedback({
           type: 'error',
-          message: `❌ เกิดข้อผิดพลาด: ${data.error || 'Failed to trigger'}`,
+          message: data?.message || data?.error || 'เกิดข้อผิดพลาดในการยิงแจ้งเตือน',
         });
       }
     } catch (err: any) {
-      setFeedback({ type: 'error', message: err.message });
+      setFeedback({
+        type: 'error',
+        message: err.message?.includes('token')
+          ? 'เซิร์ฟเวอร์กำลังรีสตาร์ทหรือมี Rate Limit กรุณารอสัก 2-3 วินาทีแล้วลองใหม่ครับ'
+          : err.message,
+      });
     } finally {
       setIsTriggering(false);
     }

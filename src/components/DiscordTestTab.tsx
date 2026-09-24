@@ -43,11 +43,19 @@ export const DiscordTestTab: React.FC<DiscordTestTabProps> = ({
   // Custom test fruits override
   const [currentTestFruits, setCurrentTestFruits] = useState<BloxFruit[]>(stockFruits);
   const [isSending, setIsSending] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const [sendResult, setSendResult] = useState<{
     type: 'success' | 'error';
     message: string;
     details?: string;
   } | null>(null);
+
+  // Cooldown timer
+  React.useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => setCooldown((prev) => prev - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
 
   // Sync test fruits when stockFruits changes if user hasn't overridden
   React.useEffect(() => {
@@ -57,6 +65,7 @@ export const DiscordTestTab: React.FC<DiscordTestTabProps> = ({
   }, [stockFruits]);
 
   const handleSend = async () => {
+    if (cooldown > 0) return;
     setIsSending(true);
     setSendResult(null);
 
@@ -74,26 +83,50 @@ export const DiscordTestTab: React.FC<DiscordTestTabProps> = ({
         }),
       });
 
-      const data = await response.json();
+      const rawText = await response.text();
+      let data: any = null;
 
-      if (response.ok && data.success) {
+      try {
+        data = JSON.parse(rawText);
+      } catch {
+        // Handle raw non-JSON text gracefully
+        if (rawText.toLowerCase().includes('too many') || response.status === 429) {
+          data = {
+            success: false,
+            error: '⚠️ Discord กำลังจำกัดความถี่การส่ง (Rate Limit): กรุณารอสัก 2-3 วินาทีแล้วลองกดส่งใหม่ครับ',
+          };
+        } else {
+          data = {
+            success: false,
+            error: `เซิร์ฟเวอร์ตอบกลับ: ${rawText.substring(0, 120) || 'ไม่สามารถแปลผลลัพธ์ได้'}`,
+          };
+        }
+      }
+
+      if (data && data.success) {
+        setCooldown(3); // 3-second cooldown to avoid Discord 429
         setSendResult({
           type: 'success',
-          message: '✅ ส่งการแจ้งเตือนสต็อกเข้า Discord เรียบร้อยแล้ว! (ตรวจสอบในแชนแนล Discord ของคุณได้ทันที)',
+          message: '✅ ส่งการแจ้งเตือนสต็อกเข้า Discord เรียบร้อยแล้ว!',
           details: `ส่งผลไม้ทั้งหมด ${data.fruitsCount} ผล • เวลา: ${new Date().toLocaleTimeString('th-TH')}`,
         });
       } else {
+        const errorMsg = data?.error || 'เกิดข้อผิดพลาดในการส่งเข้า Discord';
         setSendResult({
           type: 'error',
-          message: '❌ เกิดข้อผิดพลาดในการส่งเข้า Discord',
-          details: data.error || 'Unknown error occurred',
+          message: errorMsg.includes('Rate Limit')
+            ? '⚠️ ติดขัดเรื่องความถี่การส่ง (Rate Limit)'
+            : '❌ เกิดข้อผิดพลาดในการส่งเข้า Discord',
+          details: errorMsg,
         });
       }
     } catch (err: any) {
       setSendResult({
         type: 'error',
         message: '❌ ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้',
-        details: err.message,
+        details: err.message?.includes('token')
+          ? 'เซิร์ฟเวอร์กำลังรีสตาร์ทหรือมี Rate Limit กรุณารอสักครู่แล้วลองใหม่ครับ'
+          : err.message,
       });
     } finally {
       setIsSending(false);
@@ -132,11 +165,15 @@ export const DiscordTestTab: React.FC<DiscordTestTabProps> = ({
 
           <button
             onClick={handleSend}
-            disabled={isSending || !webhookUrl}
-            className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-[#5865F2] hover:bg-[#4752C4] disabled:opacity-50 text-white font-bold text-sm shadow-lg shadow-[#5865F2]/30 active:scale-95 transition-all cursor-pointer"
+            disabled={isSending || cooldown > 0 || !webhookUrl}
+            className="inline-flex items-center justify-center gap-2 px-6 py-3.5 rounded-xl bg-[#5865F2] hover:bg-[#4752C4] disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm shadow-lg shadow-[#5865F2]/30 active:scale-95 transition-all cursor-pointer"
           >
             <Send className={`w-4 h-4 ${isSending ? 'animate-bounce' : ''}`} />
-            {isSending ? 'กำลังส่งเข้า Discord...' : 'ยิงแจ้งเตือนเข้า Discord ทันที'}
+            {isSending
+              ? 'กำลังส่งเข้า Discord...'
+              : cooldown > 0
+              ? `⏳ รออีก ${cooldown} วินาที...`
+              : 'ยิงแจ้งเตือนเข้า Discord ทันที'}
           </button>
         </div>
 
