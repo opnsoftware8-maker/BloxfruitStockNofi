@@ -22,6 +22,12 @@ import {
   CheckCircle2,
   AlertTriangle,
   Lightbulb,
+  Eye,
+  EyeOff,
+  Radio,
+  Power,
+  KeyRound,
+  Link as LinkIcon,
 } from 'lucide-react';
 
 const DEFAULT_AI_WEBHOOK =
@@ -39,8 +45,23 @@ interface GeminiQAItem {
   error?: string;
 }
 
+interface LiveBotStatus {
+  isRunning: boolean;
+  botInfo: {
+    id: string;
+    tag: string;
+    username: string;
+    avatar: string | null;
+    guildsCount: number;
+    guildNames: string[];
+    startedAt: string;
+  } | null;
+  hasSavedToken: boolean;
+  savedTokenMasked: string;
+}
+
 export function GeminiBotTab() {
-  const [subTab, setSubTab] = useState<'control' | 'tagGuide' | 'autoScheduler' | 'history'>('control');
+  const [subTab, setSubTab] = useState<'control' | 'tagGuide' | 'autoScheduler' | 'history'>('tagGuide');
 
   // Input states
   const [question, setQuestion] = useState('');
@@ -49,6 +70,14 @@ export function GeminiBotTab() {
   const [customInstruction, setCustomInstruction] = useState('');
   const [webhookUrl, setWebhookUrl] = useState(DEFAULT_AI_WEBHOOK);
   const [botName, setBotName] = useState('Gemini AI Assistant | ผู้ช่วยประจำกลุ่ม');
+
+  // Live Bot states
+  const [liveBot, setLiveBot] = useState<LiveBotStatus | null>(null);
+  const [botTokenInput, setBotTokenInput] = useState('');
+  const [isBotLoading, setIsBotLoading] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+  const [clientIdInput, setClientIdInput] = useState('');
+  const [copiedInvite, setCopiedInvite] = useState(false);
 
   // Generation states
   const [isLoading, setIsLoading] = useState(false);
@@ -107,8 +136,73 @@ export function GeminiBotTab() {
     }
   };
 
+  const fetchBotStatus = async () => {
+    try {
+      const res = await fetch('/api/ai/bot/status');
+      const data = await res.json();
+      if (data.success) {
+        setLiveBot(data);
+        if (data.botInfo?.id && !clientIdInput) {
+          setClientIdInput(data.botInfo.id);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch live bot status:', err);
+    }
+  };
+
+  const handleStartBot = async () => {
+    if (!botTokenInput.trim() && !liveBot?.hasSavedToken) {
+      setStatusMessage({ type: 'error', text: 'กรุณากรอก Discord Bot Token ก่อนกดเริ่ม' });
+      return;
+    }
+    setIsBotLoading(true);
+    setStatusMessage(null);
+    try {
+      const res = await fetch('/api/ai/bot/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: botTokenInput.trim() }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStatusMessage({
+          type: 'success',
+          text: `🎉 บอทออนไลน์แล้วในชื่อ "${data.botInfo?.tag || 'Discord Bot'}"! ตอนนี้คนในกลุ่มพิมพ์แท็ก @${data.botInfo?.username || 'บอท'} หรือ !ask ถามได้ทันที!`,
+        });
+        setBotTokenInput('');
+        fetchBotStatus();
+      } else {
+        setStatusMessage({ type: 'error', text: data.error || 'ไม่สามารถเชื่อมต่อ Discord Bot ได้' });
+      }
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อ' });
+    } finally {
+      setIsBotLoading(false);
+    }
+  };
+
+  const handleStopBot = async () => {
+    setIsBotLoading(true);
+    try {
+      const res = await fetch('/api/ai/bot/stop', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        setStatusMessage({ type: 'success', text: 'หยุดการทำงานของบอท Discord แล้ว' });
+        fetchBotStatus();
+      }
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err.message });
+    } finally {
+      setIsBotLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchConfig();
+    fetchBotStatus();
+    const interval = setInterval(fetchBotStatus, 8000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleAskOnly = async () => {
@@ -241,29 +335,40 @@ export function GeminiBotTab() {
             <div className="flex items-center gap-2.5 flex-wrap">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-violet-500/20 text-violet-300 border border-violet-500/40 text-xs font-bold shadow-sm">
                 <Sparkles className="w-3.5 h-3.5 text-violet-400" />
-                บอทตัวที่ 2 • Gemini 3.8 Flash
+                Gemini 3.8 Flash • บอทผู้ช่วยประจำกลุ่ม
               </span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs font-medium">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                เชื่อมต่อ Webhook ใหม่แล้ว 100%
-              </span>
+              {liveBot?.isRunning ? (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold shadow-sm">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                  🟢 Discord Bot: ออนไลน์ ({liveBot.botInfo?.tag || 'Connected'})
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-xs font-medium">
+                  <span className="w-2 h-2 rounded-full bg-amber-400" />
+                  Discord Bot: รอใส่ Token เพื่อเปิดออนไลน์
+                </span>
+              )}
             </div>
 
             <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
-              <span>🤖 บอทผู้ช่วยตอบคำถามประจำกลุ่ม Discord</span>
+              <span>🤖 ศูนย์ควบคุมบอทผู้ช่วย Discord & Gemini AI</span>
             </h2>
             <p className="text-sm text-zinc-300 max-w-2xl leading-relaxed">
-              ควบคุมด้วย <strong className="text-violet-300 font-semibold">Gemini API</strong> สำหรับตอบคำถามสมาชิกในดิสคอร์ด ทั้งเรื่องผลปีศาจ Blox Fruits, สเตตัส, ดันเจี้ยนเรด, การวิเคราะห์เทรดดิ้ง W/F/L และราคาไอเทม Limited Roblox!
+              ตอบคำถามสมาชิกใน Discord ทั้งเรื่องผลปีศาจ Blox Fruits, สเตตัส, ดันเจี้ยนเรด, การวิเคราะห์เทรด W/F/L และราคาไอเทม Limited Roblox! สามารถให้สมาชิกพิมพ์ <code className="text-amber-300 font-semibold">@บอท คำถาม</code> หรือส่งผ่าน Webhook ได้ทันที
             </p>
           </div>
 
           <div className="shrink-0 flex flex-wrap gap-2 w-full md:w-auto">
             <button
               onClick={() => setSubTab('tagGuide')}
-              className="flex-1 md:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs shadow-lg shadow-violet-600/30 transition-all cursor-pointer"
+              className={`flex-1 md:flex-initial inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs shadow-lg transition-all cursor-pointer ${
+                liveBot?.isRunning
+                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-600/30'
+                  : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-black shadow-amber-500/30'
+              }`}
             >
-              <HelpCircle className="w-4 h-4 text-violet-200" />
-              <span>วิธีตั้งค่าให้แท็ก @บอท ในดิสคอร์ดได้</span>
+              <KeyRound className="w-4 h-4" />
+              <span>{liveBot?.isRunning ? 'จัดการบอทออนไลน์' : '🔑 ใส่ Token เพื่อเปิดบอทออนไลน์'}</span>
             </button>
           </div>
         </div>
@@ -290,6 +395,21 @@ export function GeminiBotTab() {
       {/* Sub-tab Navigation */}
       <div className="flex items-center gap-2 overflow-x-auto border-b border-zinc-800 pb-2">
         <button
+          onClick={() => setSubTab('tagGuide')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+            subTab === 'tagGuide'
+              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-zinc-950 shadow-md shadow-amber-500/25 font-black'
+              : 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10'
+          }`}
+        >
+          <KeyRound className="w-4 h-4" />
+          <span>🔑 ได้โทเคนแล้วทำอะไรต่อ & เปิดบอทออนไลน์</span>
+          {liveBot?.isRunning && (
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-1" />
+          )}
+        </button>
+
+        <button
           onClick={() => setSubTab('control')}
           className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
             subTab === 'control'
@@ -298,19 +418,7 @@ export function GeminiBotTab() {
           }`}
         >
           <MessageSquare className="w-4 h-4" />
-          <span>🎮 กล่องสั่งถาม-ตอบ & ส่งเข้าดิสคอร์ด</span>
-        </button>
-
-        <button
-          onClick={() => setSubTab('tagGuide')}
-          className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-            subTab === 'tagGuide'
-              ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-zinc-950 shadow-md shadow-amber-500/25 font-black'
-              : 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10'
-          }`}
-        >
-          <Lightbulb className="w-4 h-4" />
-          <span>💡 วิธีทำให้คนในกลุ่มแท็ก @บอท ในดิสคอร์ดได้</span>
+          <span>🎮 กล่องสั่งถาม-ตอบ (ผ่าน Webhook)</span>
         </button>
 
         <button
@@ -655,141 +763,347 @@ export function GeminiBotTab() {
         </div>
       )}
 
-      {/* Subtab 2: Tag @Bot Guide (วิธีทำให้คนในกลุ่มแท็ก @บอท ในดิสคอร์ดได้) */}
+      {/* Subtab 2: Tag @Bot Guide & Live Bot Runner */}
       {subTab === 'tagGuide' && (
         <div className="space-y-6">
-          <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-6 space-y-5">
+          {/* Header Summary Banner */}
+          <div className="bg-gradient-to-r from-amber-500/15 via-violet-500/15 to-indigo-500/15 border border-amber-500/30 rounded-2xl p-6 space-y-3">
             <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0">
-                <Lightbulb className="w-6 h-6 text-amber-400" />
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 shadow-lg shadow-amber-500/20">
+                <KeyRound className="w-6 h-6 text-amber-300" />
               </div>
-              <div>
-                <h3 className="text-lg font-bold text-white">
-                  คำตอบเรื่อง: "จะแท็กบอทยังไงให้มันตอบคนในดิสคอร์ดได้?"
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-bold">
+                  คำตอบสำหรับคำถามของคุณ
+                </div>
+                <h3 className="text-lg font-black text-white">
+                  "ได้โทเคน (Bot Token) มาแล้ว แล้วเอาไปทำอะไรต่อ?"
                 </h3>
-                <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
-                  Discord แยกการทำงานระหว่าง <strong className="text-white">Webhook</strong> และ <strong className="text-amber-300">บอทดิสคอร์ดแท้ (Bot Application)</strong> ไว้อย่างชัดเจน:
+                <p className="text-xs text-zinc-300 leading-relaxed max-w-3xl">
+                  <strong>Bot Token</strong> คือ <strong>"กุญแจล็อกอินของบอท"</strong> ที่ทำให้บอทมีชีวิตขึ้นมาและเชื่อมต่อกับเซิร์ฟเวอร์ Discord ได้จริง! เมื่อมีโทเคนแล้ว คุณสามารถทำ <strong>3 ขั้นตอนด้านล่างนี้</strong> เพื่อให้บอทเริ่มตอบคำถามคนที่แท็กในดิสคอร์ดได้ทันที:
                 </p>
               </div>
             </div>
+          </div>
 
-            {/* Comparison Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-2">
-                <div className="flex items-center gap-2 text-violet-400 font-bold text-xs">
-                  <span className="w-2 h-2 rounded-full bg-violet-400" />
-                  <span>1. Discord Webhook (ที่คุณใช้อยู่ตอนนี้)</span>
-                </div>
-                <p className="text-xs text-zinc-300 leading-relaxed">
-                  • <strong>ข้อดี:</strong> ใช้งานง่ายที่สุด ไม่ต้องเปิดบอททิ้งไว้ ระบบในเว็บนี้สามารถสั่งยิงแจ้งเตือนหรือคำตอบเข้า Discord ได้ตลอดเวลา 24 ชม.<br />
-                  • <strong>ข้อจำกัด:</strong> เป็นช่องทาง "ส่งออกทางเดียว" Discord ไม่อนุญาตให้คนในห้องพิมพ์แท็ก @Webhook ได้โดยตรง
-                </p>
-              </div>
-
-              <div className="bg-zinc-950 border border-amber-500/30 rounded-xl p-4 space-y-2">
-                <div className="flex items-center gap-2 text-amber-400 font-bold text-xs">
-                  <span className="w-2 h-2 rounded-full bg-amber-400" />
-                  <span>2. Discord Bot แท้ (แท็ก @บอท ตอบได้ 100%)</span>
-                </div>
-                <p className="text-xs text-zinc-300 leading-relaxed">
-                  • <strong>ข้อดี:</strong> สมาชิกในกลุ่มพิมพ์ <code className="text-amber-300">@บอท ผลโมจิดีไหม?</code> หรือ <code className="text-amber-300">!ask คำถาม</code> แล้วบอทจะแท็กตอบคนนั้นในดิสคอร์ดทันที!<br />
-                  • <strong>วิธีทำ:</strong> เราได้เขียนโค้ดและเตรียมไฟล์ <code className="text-white font-mono">scripts/discord-gemini-bot.mjs</code> ไว้ให้คุณเรียบร้อยแล้ว!
-                </p>
-              </div>
-            </div>
-
-            {/* Step-by-step Setup Guide */}
-            <div className="space-y-4 pt-2">
-              <h4 className="text-sm font-bold text-white flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>3 ขั้นตอนง่ายๆ ในการเปิดให้บอทรับการแท็ก @บอท ใน Discord:</span>
-              </h4>
-
-              <div className="space-y-3 text-xs">
-                {/* Step 1 */}
-                <div className="flex items-start gap-3 p-3.5 bg-zinc-950 border border-zinc-800 rounded-xl">
-                  <div className="w-6 h-6 rounded-full bg-violet-600 text-white font-black flex items-center justify-center shrink-0 text-xs">
-                    1
-                  </div>
-                  <div className="space-y-1">
-                    <div className="font-bold text-white">
-                      สร้าง Discord Bot ใน Developer Portal (ฟรี)
-                    </div>
-                    <p className="text-zinc-400">
-                      เข้าไปที่เว็บ{' '}
-                      <a
-                        href="https://discord.com/developers/applications"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sky-400 hover:underline inline-flex items-center gap-0.5"
-                      >
-                        discord.com/developers/applications <ExternalLink className="w-3 h-3" />
-                      </a>{' '}
-                      → กดปุ่ม <strong>"New Application"</strong> → ตั้งชื่อบอทของคุณ
-                    </p>
-                  </div>
-                </div>
-
-                {/* Step 2 */}
-                <div className="flex items-start gap-3 p-3.5 bg-zinc-950 border border-zinc-800 rounded-xl">
-                  <div className="w-6 h-6 rounded-full bg-violet-600 text-white font-black flex items-center justify-center shrink-0 text-xs">
-                    2
-                  </div>
-                  <div className="space-y-1">
-                    <div className="font-bold text-white">
-                      เปิดสิทธิ์ให้อ่านข้อความ & คัดลอก Bot Token
-                    </div>
-                    <p className="text-zinc-400">
-                      ไปที่เมนูด้านซ้ายเลือก <strong>"Bot"</strong> → เลื่อนลงมาเปิดสวิตช์ <strong>"MESSAGE CONTENT INTENT"</strong> (สำคัญมาก เพื่อให้บอทอ่านข้อความที่คนแท็กถามได้) → กดปุ่ม <strong>"Reset Token"</strong> แล้วก็อปปี้ Bot Token เก็บไว้
-                    </p>
-                  </div>
-                </div>
-
-                {/* Step 3 */}
-                <div className="flex items-start gap-3 p-3.5 bg-zinc-950 border border-zinc-800 rounded-xl">
-                  <div className="w-6 h-6 rounded-full bg-violet-600 text-white font-black flex items-center justify-center shrink-0 text-xs">
-                    3
-                  </div>
-                  <div className="space-y-1">
-                    <div className="font-bold text-white">
-                      เชิญบอทเข้าเซิร์ฟเวอร์ & สั่งรันคำสั่งเดียว
-                    </div>
-                    <p className="text-zinc-400">
-                      ไปที่ <strong>OAuth2 → URL Generator</strong> → ติ๊ก [bot] → ติ๊กสิทธิ์ [Send Messages, Read Messages] → ก๊อปลิงก์ไปเปิดในเบราว์เซอร์เพื่อเชิญบอทเข้าห้อง แล้วรันคำสั่งด้านล่างนี้ได้เลย:
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Run Command & Code snippet */}
-            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-mono text-zinc-300 flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-emerald-400" />
-                  <span>คำสั่งรันบอท (Node.js):</span>
+          {/* STEP 1: Live Bot Connection Panel (Interactive) */}
+          <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+              <div className="flex items-center gap-3">
+                <span className="w-7 h-7 rounded-xl bg-violet-600 text-white font-black text-xs flex items-center justify-center shadow">
+                  1
                 </span>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText('DISCORD_BOT_TOKEN="YOUR_BOT_TOKEN_HERE" node scripts/discord-gemini-bot.mjs');
-                    setCopiedCode(true);
-                    setTimeout(() => setCopiedCode(false), 2000);
-                  }}
-                  className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedCode ? 'คัดลอกแล้ว!' : 'คัดลอกคำสั่ง'}</span>
-                </button>
+                <div>
+                  <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Power className="w-4 h-4 text-violet-400" />
+                    <span>นำ Token มาใส่เพื่อสั่งให้บอทออนไลน์ (เปิดใช้งานทันทีในระบบนี้)</span>
+                  </h4>
+                  <p className="text-[11px] text-zinc-400">
+                    วาง Token ลงในช่องด้านล่าง แล้วกดเชื่อมต่อ บอทจะออนไลน์ใน Discord ทันทีโดยไม่ต้องเปิดโปรแกรมอื่น
+                  </p>
+                </div>
               </div>
 
-              <div className="bg-black/60 p-3 rounded-lg font-mono text-xs text-emerald-400 overflow-x-auto">
-                DISCORD_BOT_TOKEN="ใส่_BOT_TOKEN_ของคุณที่นี่" node scripts/discord-gemini-bot.mjs
-              </div>
-
-              <p className="text-[11px] text-zinc-400">
-                ✅ โค้ดทั้งหมดอยู่ในไฟล์ <code className="text-violet-300">scripts/discord-gemini-bot.mjs</code> ในระบบเรียบร้อยแล้ว โดยสคริปต์นี้เชื่อมกับ <strong>Gemini 3.8 Flash API</strong> อัตโนมัติ!
-              </p>
+              {liveBot?.isRunning && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-bold shadow-sm">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  ออนไลน์อยู่
+                </span>
+              )}
             </div>
+
+            {/* If Bot is Currently Running */}
+            {liveBot?.isRunning && liveBot.botInfo ? (
+              <div className="bg-gradient-to-r from-emerald-950/40 via-zinc-900 to-emerald-950/30 border border-emerald-500/40 rounded-xl p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5">
+                    {liveBot.botInfo.avatar ? (
+                      <img
+                        src={liveBot.botInfo.avatar}
+                        alt="Bot Avatar"
+                        className="w-12 h-12 rounded-full border-2 border-emerald-500 shadow-md object-cover"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold text-lg shadow-md">
+                        🤖
+                      </div>
+                    )}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-black text-base text-white">{liveBot.botInfo.username}</span>
+                        <span className="px-1.5 py-0.5 rounded bg-[#5865F2] text-white text-[10px] font-black uppercase">
+                          BOT
+                        </span>
+                        <span className="text-xs text-zinc-400 font-mono">#{liveBot.botInfo.tag.split('#')[1] || '0000'}</span>
+                      </div>
+                      <div className="text-xs text-emerald-300 flex items-center gap-2 mt-0.5">
+                        <span>🟢 สถานะ: ออนไลน์พร้อมตอบคำถามตลอด 24 ชม.</span>
+                        <span>•</span>
+                        <span>อยู่ทั้งหมด {liveBot.botInfo.guildsCount} เซิร์ฟเวอร์</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleStopBot}
+                    disabled={isBotLoading}
+                    className="px-4 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/40 font-bold text-xs flex items-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <Power className="w-3.5 h-3.5 text-rose-400" />
+                    <span>หยุดการทำงานบอท (Stop Bot)</span>
+                  </button>
+                </div>
+
+                {/* Quick Test Instructions */}
+                <div className="bg-black/50 border border-emerald-500/20 rounded-xl p-3.5 space-y-2 text-xs">
+                  <div className="font-bold text-emerald-300 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>ทดสอบพิมพ์แท็กบอทใน Discord ได้ทันที!</span>
+                  </div>
+                  <p className="text-zinc-300 leading-relaxed">
+                    ตอนนี้คนในเซิร์ฟเวอร์ดิสคอร์ดของคุณสามารถแท็กบอทได้แล้ว โดยพิมพ์แบบใดก็ได้ดังนี้:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 font-mono text-[11px]">
+                    <div className="p-2 rounded bg-zinc-900 border border-zinc-800 text-indigo-300">
+                      <code>@{liveBot.botInfo.username} ผล Kitsune ดีไหม แนะนำการอัปสเตตัสหน่อย</code>
+                    </div>
+                    <div className="p-2 rounded bg-zinc-900 border border-zinc-800 text-violet-300">
+                      <code>!ask ดาบคาตานะสามเล่ม (TTK) ทำยังไง?</code>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* If Bot is Offline: Provide Token Input Box */
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-300 mb-1.5">
+                    🔑 วาง Discord Bot Token ของคุณที่นี่:
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showToken ? 'text' : 'password'}
+                      value={botTokenInput}
+                      onChange={(e) => setBotTokenInput(e.target.value)}
+                      placeholder={
+                        liveBot?.hasSavedToken
+                          ? `เคยมี Token บันทึกไว้ (${liveBot.savedTokenMasked}) สามารถกดเริ่มได้เลย หรือใส่โทเคนใหม่`
+                          : 'วาง Token เช่น: MTA1NDky... หรือ MTIzNDU2...'
+                      }
+                      className="w-full bg-zinc-950 border border-zinc-800 focus:border-violet-500 rounded-xl pl-3.5 pr-24 py-3 text-xs text-white font-mono transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowToken(!showToken)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white text-xs flex items-center gap-1 cursor-pointer"
+                    >
+                      {showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>{showToken ? 'ซ่อน' : 'แสดง'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                  <button
+                    onClick={handleStartBot}
+                    disabled={isBotLoading || (!botTokenInput.trim() && !liveBot?.hasSavedToken)}
+                    className="w-full sm:flex-1 py-3 px-5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white font-bold text-xs shadow-lg shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
+                  >
+                    {isBotLoading ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>กำลังล็อกอินเข้าสู่ Discord...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Radio className="w-4 h-4" />
+                        <span>🟢 เชื่อมต่อและเริ่มเปิดบอทออนไลน์ (Connect Bot Online)</span>
+                      </>
+                    )}
+                  </button>
+
+                  {liveBot?.hasSavedToken && (
+                    <button
+                      onClick={() => {
+                        setBotTokenInput('');
+                        handleStartBot();
+                      }}
+                      disabled={isBotLoading}
+                      className="w-full sm:w-auto py-3 px-4 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold text-xs border border-zinc-700 transition-colors cursor-pointer"
+                    >
+                      ใช้ Token ที่บันทึกไว้ ({liveBot.savedTokenMasked})
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-zinc-400 leading-relaxed">
+                  🔒 <strong>ความปลอดภัย:</strong> Token ของคุณจะถูกใช้เชื่อมต่อกับ Discord Gateway โดยตรงในระบบหลังบ้านเพื่อรับฟังคำสั่งถาม-ตอบ ไม่มีการส่งออกไปยังบุคคลที่สาม
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* STEP 2: Invite Bot to Discord Server */}
+          <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3 border-b border-zinc-800 pb-4">
+              <span className="w-7 h-7 rounded-xl bg-violet-600 text-white font-black text-xs flex items-center justify-center shadow">
+                2
+              </span>
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <LinkIcon className="w-4 h-4 text-violet-400" />
+                  <span>เชิญบอทเข้าเซิร์ฟเวอร์ดิสคอร์ดของคุณ (Invite Link)</span>
+                </h4>
+                <p className="text-[11px] text-zinc-400">
+                  ถ้าบอทยังไม่ได้อยู่ในเซิร์ฟเวอร์ จะไม่สามารถรับแท็กได้ ให้กดเชิญบอทเข้าดิสคอร์ดของคุณก่อน
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+              <div className="md:col-span-7 space-y-2">
+                <label className="block text-xs font-semibold text-zinc-300">
+                  🆔 Application ID / Client ID (ดูได้จากหน้า Developer Portal):
+                </label>
+                <input
+                  type="text"
+                  value={clientIdInput}
+                  onChange={(e) => setClientIdInput(e.target.value)}
+                  placeholder="เช่น 1552857116002484336 หรือรหัสตัวเลข 18-19 หลัก"
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono focus:border-violet-500"
+                />
+                <span className="text-[10px] text-zinc-500 block">
+                  * หาได้ที่หน้า Developer Portal → แท็บ "General Information" → ตรงช่อง "Application ID"
+                </span>
+              </div>
+
+              <div className="md:col-span-5 flex flex-col gap-2 pt-2 md:pt-0">
+                <a
+                  href={
+                    clientIdInput.trim()
+                      ? `https://discord.com/api/oauth2/authorize?client_id=${clientIdInput.trim()}&permissions=277025507392&scope=bot`
+                      : '#'
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => {
+                    if (!clientIdInput.trim()) {
+                      e.preventDefault();
+                      setStatusMessage({ type: 'error', text: 'กรุณากรอก Application ID ก่อนกดเชิญบอท' });
+                    }
+                  }}
+                  className={`w-full py-2.5 px-4 rounded-xl font-bold text-xs flex items-center justify-center gap-2 text-center shadow-lg transition-all ${
+                    clientIdInput.trim()
+                      ? 'bg-violet-600 hover:bg-violet-500 text-white shadow-violet-600/30 cursor-pointer'
+                      : 'bg-zinc-800 text-zinc-500 cursor-not-allowed'
+                  }`}
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>🔗 คลิกเพื่อเชิญบอทเข้าเซิร์ฟเวอร์</span>
+                </a>
+
+                {clientIdInput.trim() && (
+                  <button
+                    onClick={() => {
+                      const url = `https://discord.com/api/oauth2/authorize?client_id=${clientIdInput.trim()}&permissions=277025507392&scope=bot`;
+                      navigator.clipboard.writeText(url);
+                      setCopiedInvite(true);
+                      setTimeout(() => setCopiedInvite(false), 2000);
+                    }}
+                    className="w-full py-2 px-3 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    {copiedInvite ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedInvite ? 'คัดลอกลิงก์เชิญแล้ว!' : 'คัดลอกลิงก์ Invite URL'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* STEP 3: Must Enable Intent Switch in Developer Portal */}
+          <div className="bg-amber-950/20 border border-amber-500/40 rounded-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3 border-b border-amber-500/30 pb-4">
+              <span className="w-7 h-7 rounded-xl bg-amber-500 text-zinc-950 font-black text-xs flex items-center justify-center shadow">
+                3
+              </span>
+              <div>
+                <h4 className="text-sm font-bold text-amber-300 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-amber-400" />
+                  <span>สิ่งสำคัญที่สุด: อย่าลืมเปิดสวิตช์ MESSAGE CONTENT INTENT</span>
+                </h4>
+                <p className="text-[11px] text-zinc-300">
+                  ถ้าไม่เปิดสวิตช์นี้ Discord จะบล็อกไม่ให้บอทอ่านข้อความที่คนแท็กถาม (บอทจะไม่ตอบ)
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              <div className="bg-zinc-950/80 p-3.5 rounded-xl border border-zinc-800 space-y-1.5">
+                <div className="font-bold text-white flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-violet-600/30 text-violet-300 text-center leading-5 font-black text-[11px]">1</span>
+                  <span>ไปที่ Developer Portal</span>
+                </div>
+                <p className="text-zinc-400 text-[11px]">
+                  เข้าเว็บ <a href="https://discord.com/developers/applications" target="_blank" rel="noreferrer" className="text-sky-400 underline">discord.com/developers/applications</a> แล้วคลิกที่ชื่อบอทของคุณ
+                </p>
+              </div>
+
+              <div className="bg-zinc-950/80 p-3.5 rounded-xl border border-zinc-800 space-y-1.5">
+                <div className="font-bold text-white flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-violet-600/30 text-violet-300 text-center leading-5 font-black text-[11px]">2</span>
+                  <span>คลิกเมนู "Bot" ด้านซ้าย</span>
+                </div>
+                <p className="text-zinc-400 text-[11px]">
+                  มองหาเมนูแท็บ <strong>"Bot"</strong> แถบทางซ้ายมือ แล้วเลื่อนหน้าจอลงมาด้านล่าง
+                </p>
+              </div>
+
+              <div className="bg-zinc-950/80 p-3.5 rounded-xl border border-amber-500/30 space-y-1.5">
+                <div className="font-bold text-amber-300 flex items-center gap-1.5">
+                  <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-300 text-center leading-5 font-black text-[11px]">3</span>
+                  <span>เปิด MESSAGE CONTENT INTENT</span>
+                </div>
+                <p className="text-zinc-400 text-[11px]">
+                  ตรงหัวข้อ <strong>Privileged Gateway Intents</strong> ให้เปิดสวิตช์ <strong>MESSAGE CONTENT INTENT</strong> เป็นสีเขียว แล้วกด <strong>Save Changes</strong>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Alternative Option: Run Locally or on VPS */}
+          <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                  <Terminal className="w-4 h-4 text-emerald-400" />
+                  <span>ทางเลือกเสริม: รันบอทบนคอมพิวเตอร์ของคุณเอง หรือ Cloud VPS (Node.js)</span>
+                </h4>
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  หากคุณต้องการดาวน์โหลดโค้ดไปรันแบบ Standalone ในเครื่องตนเอง สามารถสั่งรันคำสั่งด้านล่างนี้ได้ทันที:
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  const cmd = `DISCORD_BOT_TOKEN="${botTokenInput.trim() || 'ใส่_BOT_TOKEN_ของคุณที่นี่'}" node scripts/discord-gemini-bot.mjs`;
+                  navigator.clipboard.writeText(cmd);
+                  setCopiedCode(true);
+                  setTimeout(() => setCopiedCode(false), 2000);
+                }}
+                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-lg text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedCode ? 'คัดลอกแล้ว!' : 'คัดลอกคำสั่งรัน'}</span>
+              </button>
+            </div>
+
+            <div className="bg-black/70 p-3.5 rounded-xl font-mono text-xs text-emerald-400 overflow-x-auto border border-zinc-800">
+              DISCORD_BOT_TOKEN="{botTokenInput.trim() || 'ใส่_BOT_TOKEN_ของคุณที่นี่'}" node scripts/discord-gemini-bot.mjs
+            </div>
+
+            <p className="text-[11px] text-zinc-400">
+              ✅ ไฟล์สคริปต์ <code className="text-violet-300 font-mono">scripts/discord-gemini-bot.mjs</code> ในระบบนี้ถูกเขียนเตรียมไว้ครบถ้วนแล้ว เชื่อมต่อกับ <strong>Google Gemini 3.8 Flash</strong> โดยตรง พร้อมระบบจัดการ Embed และ Mention ผู้ถามอัตโนมัติ
+            </p>
           </div>
         </div>
       )}

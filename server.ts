@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { FRUITS_DATABASE } from './src/data/fruits.ts';
 import { GoogleGenAI } from '@google/genai';
+import { Client, GatewayIntentBits, Partials, EmbedBuilder } from 'discord.js';
 
 dotenv.config();
 
@@ -1842,6 +1843,198 @@ app.post('/api/ai/trigger-tip', async (req, res) => {
 app.post('/api/ai/clear-history', (_req, res) => {
   geminiBotConfig.history = [];
   res.json({ success: true, message: 'ล้างประวัติการตอบคำถามเรียบร้อยแล้ว' });
+});
+
+// =================================================================
+// 🤖 Live Discord Bot Client (Real @Mention Bot Runner)
+// Allows members in Discord to @mention or type !ask to chat with Gemini 3.8 Flash
+// =================================================================
+let activeDiscordClient: Client | null = null;
+let activeDiscordBotInfo: {
+  id: string;
+  tag: string;
+  username: string;
+  avatar: string | null;
+  guildsCount: number;
+  guildNames: string[];
+  startedAt: string;
+} | null = null;
+let savedDiscordBotToken = process.env.DISCORD_BOT_TOKEN || '';
+
+async function startDiscordBot(token: string) {
+  if (!token || typeof token !== 'string') {
+    return { success: false, error: 'กรุณากรอก Discord Bot Token' };
+  }
+
+  const cleanToken = token.trim().replace(/^["']|["']$/g, '');
+
+  if (activeDiscordClient) {
+    try {
+      activeDiscordClient.destroy();
+    } catch (e) {}
+    activeDiscordClient = null;
+    activeDiscordBotInfo = null;
+  }
+
+  const client = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+    ],
+    partials: [Partials.Channel, Partials.Message],
+  });
+
+  return new Promise<{ success: boolean; botInfo?: any; error?: string }>((resolve) => {
+    let resolved = false;
+
+    client.once('ready', () => {
+      if (resolved) return;
+      resolved = true;
+      activeDiscordClient = client;
+      savedDiscordBotToken = cleanToken;
+      const guilds = client.guilds.cache.map((g) => g.name);
+      activeDiscordBotInfo = {
+        id: client.user?.id || '',
+        tag: client.user?.tag || '',
+        username: client.user?.username || '',
+        avatar: client.user?.displayAvatarURL() || null,
+        guildsCount: client.guilds.cache.size,
+        guildNames: guilds.slice(0, 5),
+        startedAt: new Date().toISOString(),
+      };
+      console.log(`[DiscordBot] ✅ Logged in as ${client.user?.tag}! Active in ${client.guilds.cache.size} server(s).`);
+      resolve({ success: true, botInfo: activeDiscordBotInfo });
+    });
+
+    client.on('messageCreate', async (message) => {
+      try {
+        if (message.author.bot) return;
+        if (!client.user) return;
+
+        const isMentioned = message.mentions.has(client.user.id);
+        const isAskCommand = message.content.startsWith('!ask') || message.content.startsWith('!ถาม');
+
+        if (!isMentioned && !isAskCommand) return;
+
+        let query = message.content;
+        if (isMentioned) {
+          query = query.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
+        } else if (isAskCommand) {
+          query = query.replace(/^!(ask|ถาม)\s*/i, '').trim();
+        }
+
+        if (!query) {
+          await message.reply('สวัสดีครับ! มีอะไรให้ผมและ Gemini AI ช่วยไหมครับ? แท็กผมพร้อมพิมพ์คำถามได้เลยนะ เช่น `@บอท ผล Kitsune ดีไหม` หรือพิมพ์ `!ask แนะนำจุดฟาร์ม`');
+          return;
+        }
+
+        await message.channel.sendTyping();
+        console.log(`[DiscordBot Q&A] ${message.author.username}: "${query}"`);
+
+        const aiResult = await callGemini(query, geminiBotConfig.defaultPersona, geminiBotConfig.customInstruction);
+        const answer = aiResult.success && aiResult.text ? aiResult.text : 'ขออภัยครับ ไม่สามารถคิดคำตอบได้ในขณะนี้';
+
+        // Add to history
+        const now = new Date();
+        const thaiTime = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        geminiBotConfig.history.unshift({
+          id: `qa-${Date.now()}`,
+          timestamp: now.toISOString(),
+          thaiTime,
+          question: query,
+          answer,
+          questioner: `@${message.author.username}`,
+          persona: geminiBotConfig.defaultPersona,
+          status: 'sent',
+        });
+        if (geminiBotConfig.history.length > 50) geminiBotConfig.history.pop();
+
+        if (answer.length <= 1900) {
+          const embed = new EmbedBuilder()
+            .setColor(0x8b5cf6)
+            .setTitle('💡 คำตอบจาก Gemini AI (gemini-3.8-flash)')
+            .setDescription(answer)
+            .setFooter({
+              text: `ตอบคุณ ${message.author.username} • Google Gemini AI`,
+              iconURL: message.author.displayAvatarURL(),
+            })
+            .setTimestamp();
+
+          await message.reply({ embeds: [embed] });
+        } else {
+          await message.reply({ content: answer.substring(0, 1990) });
+        }
+      } catch (err: any) {
+        console.error('[DiscordBot Q&A Error]:', err.message);
+        try {
+          await message.reply(`ขออภัยครับ เกิดข้อผิดพลาดในการประมวลผลคำตอบ: ${err.message}`);
+        } catch (_) {}
+      }
+    });
+
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        try { client.destroy(); } catch (e) {}
+        resolve({
+          success: false,
+          error: 'เชื่อมต่อ Discord ไม่สำเร็จ หมดเวลา (Timeout) โปรดตรวจสอบว่า Token ถูกต้อง และเซิร์ฟเวอร์ต่อเน็ตได้',
+        });
+      }
+    }, 15000);
+
+    client.login(cleanToken).catch((err) => {
+      clearTimeout(timeout);
+      if (!resolved) {
+        resolved = true;
+        try { client.destroy(); } catch (e) {}
+        resolve({ success: false, error: `เข้าสู่ระบบ Discord ไม่สำเร็จ: ${err.message}` });
+      }
+    });
+  });
+}
+
+// Auto-start Discord bot if env variable is present
+if (process.env.DISCORD_BOT_TOKEN) {
+  startDiscordBot(process.env.DISCORD_BOT_TOKEN).then((res) => {
+    if (res.success) {
+      console.log('[DiscordBot] Auto-connected using DISCORD_BOT_TOKEN env variable');
+    }
+  });
+}
+
+// Bot Management Endpoints
+app.get('/api/ai/bot/status', (_req, res) => {
+  res.json({
+    success: true,
+    isRunning: !!activeDiscordClient && !!activeDiscordBotInfo,
+    botInfo: activeDiscordBotInfo,
+    hasSavedToken: !!savedDiscordBotToken,
+    savedTokenMasked: savedDiscordBotToken
+      ? `${savedDiscordBotToken.substring(0, 8)}...${savedDiscordBotToken.substring(savedDiscordBotToken.length - 6)}`
+      : '',
+  });
+});
+
+app.post('/api/ai/bot/start', async (req, res) => {
+  const token = req.body?.token?.trim() || savedDiscordBotToken;
+  if (!token) {
+    return res.status(400).json({ success: false, error: 'กรุณากรอก Discord Bot Token' });
+  }
+  const result = await startDiscordBot(token);
+  res.json(result);
+});
+
+app.post('/api/ai/bot/stop', (_req, res) => {
+  if (activeDiscordClient) {
+    try {
+      activeDiscordClient.destroy();
+    } catch (e) {}
+    activeDiscordClient = null;
+    activeDiscordBotInfo = null;
+  }
+  res.json({ success: true, message: 'หยุดการทำงานของ Discord Bot เรียบร้อยแล้ว' });
 });
 
 // Setup Vite or Static File Serving
