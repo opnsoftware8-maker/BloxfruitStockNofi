@@ -6,6 +6,7 @@ import { VercelCodeTab } from './components/VercelCodeTab';
 import { DeployGuideTab } from './components/DeployGuideTab';
 import { AutoBotTab } from './components/AutoBotTab';
 import { RobloxLimitedsTab } from './components/RobloxLimitedsTab';
+import { GeminiBotTab } from './components/GeminiBotTab';
 import {
   Flame,
   Send,
@@ -19,12 +20,13 @@ import {
   ExternalLink,
   Zap,
   Crown,
+  Bot,
 } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    'robloxLimiteds' | 'autoBot' | 'liveStock' | 'discordTest' | 'vercelCode' | 'deployGuide'
-  >('robloxLimiteds');
+    'geminiBot' | 'robloxLimiteds' | 'autoBot' | 'liveStock' | 'discordTest' | 'vercelCode' | 'deployGuide'
+  >('geminiBot');
 
   const [stockFruits, setStockFruits] = useState<BloxFruit[]>([
     FRUITS_DATABASE['Quake'],
@@ -177,6 +179,21 @@ export default function App() {
           {/* Navigation Tabs */}
           <div className="flex items-center gap-2 overflow-x-auto py-2.5 scrollbar-none border-t border-zinc-800/40 text-xs">
             <button
+              onClick={() => setActiveTab('geminiBot')}
+              className={`px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-2 transition-all cursor-pointer shrink-0 ${
+                activeTab === 'geminiBot'
+                  ? 'bg-gradient-to-r from-violet-600 via-purple-600 to-indigo-600 text-white shadow-lg shadow-violet-500/30 ring-1 ring-white/30'
+                  : 'text-violet-300 hover:text-white hover:bg-violet-950/40 border border-violet-500/30'
+              }`}
+            >
+              <Bot className="w-3.5 h-3.5 text-violet-300" />
+              <span>🤖 บอทตัวที่ 2: Gemini AI ตอบคำถาม (Discord Q&A Bot)</span>
+              <span className="bg-emerald-500/20 text-emerald-300 text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">
+                Webhook ใหม่
+              </span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('robloxLimiteds')}
               className={`px-3.5 py-1.5 rounded-lg font-bold flex items-center gap-2 transition-all cursor-pointer shrink-0 ${
                 activeTab === 'robloxLimiteds'
@@ -253,6 +270,8 @@ export default function App() {
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {activeTab === 'geminiBot' && <GeminiBotTab />}
+
         {activeTab === 'robloxLimiteds' && <RobloxLimitedsTab />}
 
         {activeTab === 'autoBot' && <AutoBotTab />}

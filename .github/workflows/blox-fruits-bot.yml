@@ -1,0 +1,30 @@
+name: Blox Fruits Stock 24/7 Auto Alert (Bot 2)
+
+on:
+  schedule:
+    # Run every 4 hours (matching Blox Fruits dealer reset times)
+    - cron: '0 */4 * * *'
+  workflow_dispatch: # Allows manual 1-click test run
+
+jobs:
+  blox-fruits-stock:
+    name: Fetch & Send Blox Fruits Stock to Discord
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Execute Blox Fruits Dealer Notifier
+        env:
+          # Optional: You can set DISCORD_WEBHOOK_BLOX in GitHub Repo Secrets
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_BLOX || secrets.DISCORD_WEBHOOK }}
+          ONLY_HIGH_RARITY: 'false'
+        run: |
+          echo "🍉 Executing Blox Fruits Notifier at $(date)..."
+          node scripts/blox-cron.mjs

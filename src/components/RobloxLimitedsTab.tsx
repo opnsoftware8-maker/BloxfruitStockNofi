@@ -89,7 +89,7 @@ export const RobloxLimitedsTab: React.FC = () => {
   const [isTriggeringAuto, setIsTriggeringAuto] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
-  const [guideTab, setGuideTab] = useState<'github' | 'server' | 'cronjob'>('github');
+  const [guideTab, setGuideTab] = useState<'github' | 'dual-bot' | 'server' | 'cronjob'>('github');
   const [copiedText, setCopiedText] = useState<string | null>(null);
 
   // Fetch Items

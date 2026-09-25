@@ -1,0 +1,32 @@
+name: Roblox Limiteds Price-Drop Sniper (Bot 2 - VIP / Discount Alert)
+
+on:
+  schedule:
+    # Run every 15 minutes to snipe dropped prices
+    - cron: '*/15 * * * *'
+  workflow_dispatch: # Allows manual 1-click test run
+
+jobs:
+  roblox-sniper-alert:
+    name: Snipe Dropped Prices & Alert Discord
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Execute Roblox Sniper Notifier
+        env:
+          # Optional: You can set a separate Discord Webhook secret (e.g. VIP room)
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_SNIPER || secrets.DISCORD_WEBHOOK }}
+          MODE: 'price-drop'
+          ITEMS_COUNT: '5'
+          CUSTOM_NOTE: '🚨 [VIP SNIPER] แจ้งเตือนไอเทมราคาหลุด / ราคาดิ่งผิดปกติ (Price Drop Alert)'
+        run: |
+          echo "🎯 Executing Roblox Price-Drop Sniper at $(date)..."
+          node scripts/roblox-cron.mjs

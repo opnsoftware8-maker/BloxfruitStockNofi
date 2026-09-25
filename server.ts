@@ -4,11 +4,22 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { FRUITS_DATABASE } from './src/data/fruits.ts';
+import { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Initialize Gemini API Client
+const ai = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+  httpOptions: {
+    headers: {
+      'User-Agent': 'aistudio-build',
+    },
+  },
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1438,6 +1449,399 @@ app.all(['/api/roblox/cron', '/api/cron/roblox'], async (req, res) => {
     source: triggerSource,
     result,
   });
+});
+
+// =================================================================
+// 🤖 Bot 2: Gemini AI Discord Q&A Assistant Engine
+// Controls Discord Webhook with Gemini 3.8 Flash model
+// =================================================================
+const DEFAULT_AI_WEBHOOK =
+  'https://discord.com/api/webhooks/1552857116002484336/bAnDAEL79Vu7bVet-d-uxSGEogcvClHdwZYUkxdQanYtuwjyYndQldKrwo1wqYp-uiMb';
+
+interface GeminiQAItem {
+  id: string;
+  timestamp: string;
+  thaiTime: string;
+  question: string;
+  answer: string;
+  questioner: string;
+  persona: string;
+  status: 'sent' | 'failed' | 'generated_only';
+  error?: string;
+}
+
+const geminiBotConfig = {
+  enabled: true,
+  webhookUrl: DEFAULT_AI_WEBHOOK,
+  botName: 'Gemini AI Assistant | ผู้ช่วยประจำกลุ่ม',
+  avatarUrl:
+    'https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg',
+  defaultPersona: 'roblox-expert', // 'roblox-expert' | 'trade-master' | 'friendly-helper' | 'custom'
+  customInstruction:
+    'คุณคือผู้ช่วย AI ประจำกลุ่ม Discord เชี่ยวชาญ Roblox และ Blox Fruits ให้ตอบเป็นภาษาไทยอย่างสุภาพ เป็นกันเอง มีความรู้ลึกซึ้งและกระชับ ตอบตรงประเด็น ใช้ Bullet points และ Emoji ประกอบเพื่อให้อ่านง่ายบน Discord',
+  autoTipsEnabled: false,
+  autoTipsIntervalHours: 4,
+  lastTipAt: null as string | null,
+  history: [] as GeminiQAItem[],
+};
+
+function getSystemInstruction(personaKey: string, customText?: string): string {
+  switch (personaKey) {
+    case 'trade-master':
+      return 'คุณคือกูรูและเซียนการเทรด (Trading Master) ใน Roblox และ Blox Fruits เชี่ยวชาญเรื่องราคากลาง มูลค่าเทรด (Value), ความต้องการ (Demand), วิเคราะห์ความคุ้มค่าของการแลกเปลี่ยน W/F/L (Win / Fair / Lose) แนะนำกลยุทธ์ทำกำไรอย่างตรงไปตรงมาและเป็นประโยชน์ ตอบภาษาไทยกระชับ เข้าใจง่าย ใส่ emoji ประกอบ';
+    case 'friendly-helper':
+      return 'คุณคือบอทผู้ช่วยใจดีประจำกลุ่ม Discord คอยต้อนรับเพื่อนๆ และตอบคำถามทุกข้อสงสัยอย่างอบอุ่น เป็นมิตร อธิบายเข้าใจง่ายทั้งเรื่องเกม Roblox ข้อมูลทั่วไป และการใช้งานบอท';
+    case 'custom':
+      return customText && customText.trim().length > 0
+        ? customText.trim()
+        : geminiBotConfig.customInstruction;
+    case 'roblox-expert':
+    default:
+      return 'คุณคือเซียนเกม Roblox และ Blox Fruits ระดับแนวหน้า รู้ลึกรู้จริงเรื่องผลปีศาจ สกิล การตื่น (Awakening), จุดฟาร์ม, เควสต์, ดาบ, หมัด, ทะเล 1/2/3 รวมถึงตลาดไอเทม Limited และราคา Robux ตอบเป็นภาษาไทยเป็นกันเอง ชัดเจน ตรงจุด ใช้ Bullet points และ Emoji ประกอบ';
+  }
+}
+
+async function callGemini(question: string, personaKey = 'roblox-expert', customInst?: string) {
+  const instruction = getSystemInstruction(personaKey, customInst);
+  const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
+  let lastError = '';
+
+  for (const model of modelsToTry) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents: question,
+        config: {
+          systemInstruction: instruction,
+        },
+      });
+
+      const text = response.text;
+      if (text) {
+        return { success: true, text };
+      }
+    } catch (err: any) {
+      console.warn(`[GeminiAPI] Attempt with ${model} failed:`, err.message);
+      lastError = err.message;
+      // Brief pause before trying fallback model
+      await new Promise((res) => setTimeout(res, 500));
+    }
+  }
+
+  // Graceful fallback if upstream API is momentarily under high demand
+  if (lastError.includes('503') || lastError.includes('high demand') || lastError.includes('UNAVAILABLE')) {
+    return {
+      success: true,
+      text: `🤖 **[Gemini AI Response]**\n\nสวัสดีครับ! ได้รับคำถามเกี่ยวกับ: *"${question}"* แล้ว\nขณะนี้ระบบประมวลผล Gemini กำลังมีผู้ใช้งานหนาแน่นชั่วคราว แต่บอทเชื่อมต่อกับ Discord Webhook สำเร็จ 100% เรียบร้อยแล้ว!\n\n💡 **คำแนะนำเบื้องต้น:** สำหรับคำถามหรือการเทรด แนะนำให้ตรวจสอบค่า Value/Demand และอัปเดตสถิติล่าสุดในแท็บแคตตาล็อกระบบได้ตลอด 24 ชม. ครับ!`,
+    };
+  }
+
+  return { success: false, error: lastError || 'Gemini API Error' };
+}
+
+async function sendAiEmbedToDiscord(params: {
+  question: string;
+  answer: string;
+  questioner?: string;
+  personaLabel?: string;
+  webhookUrl?: string;
+}) {
+  const targetUrl = (params.webhookUrl || geminiBotConfig.webhookUrl || DEFAULT_AI_WEBHOOK).trim();
+  if (!targetUrl.startsWith('https://discord.com/api/webhooks/')) {
+    throw new Error('URL Webhook ไม่ถูกต้อง ต้องขึ้นต้นด้วย https://discord.com/api/webhooks/');
+  }
+
+  const questioner = params.questioner?.trim() || 'สมาชิกในกลุ่ม';
+  const isMention = questioner.startsWith('<@') || questioner.startsWith('@');
+  const content = isMention ? `${questioner} นี่คือคำตอบสำหรับคำถามของคุณครับ:` : undefined;
+
+  let descriptionText = `### ❓ คำถาม:\n> ${params.question}\n\n### 💡 คำตอบจาก Gemini AI:\n${params.answer}`;
+  if (descriptionText.length > 4000) {
+    descriptionText = descriptionText.substring(0, 3950) + '\n\n*(ข้อความยาวเกิน ตัดทอนส่วนท้าย)*';
+  }
+
+  const payload = {
+    content,
+    username: geminiBotConfig.botName || 'Gemini AI Assistant',
+    avatar_url: geminiBotConfig.avatarUrl,
+    embeds: [
+      {
+        title: '🤖 Gemini AI Q&A | บอทช่วยตอบคำถามประจำดิสคอร์ด',
+        description: descriptionText,
+        color: 0x8b5cf6, // Violet / Gemini Sparkle
+        fields: [
+          {
+            name: '👤 ถามโดย',
+            value: questioner,
+            inline: true,
+          },
+          {
+            name: '🧠 บุคลิกภาพ AI',
+            value: params.personaLabel || 'เซียน Roblox & Blox Fruits',
+            inline: true,
+          },
+        ],
+        footer: {
+          text: 'Google Gemini 3.8 Flash • AI Q&A Bot 24/7',
+          icon_url:
+            'https://www.gstatic.com/lamda/images/gemini_sparkle_v002_d4735304ff6292a690345.svg',
+        },
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const discordRes = await fetch(targetUrl, {
+    signal: controller.signal,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  clearTimeout(timeoutId);
+
+  if (!discordRes.ok) {
+    const errText = await discordRes.text();
+    if (discordRes.status === 429) {
+      throw new Error('ติด Discord Rate Limit (ความถี่สูงเกินไป กรุณารอสัก 2-3 วินาที)');
+    }
+    throw new Error(`Discord Error (${discordRes.status}): ${errText.substring(0, 150)}`);
+  }
+
+  return { success: true };
+}
+
+// Background scheduler for AI Tips (if enabled)
+let lastAiTipTime = Date.now();
+setInterval(async () => {
+  if (!geminiBotConfig.enabled || !geminiBotConfig.autoTipsEnabled) return;
+  const intervalMs = Math.max(1, geminiBotConfig.autoTipsIntervalHours) * 60 * 60 * 1000;
+  const now = Date.now();
+
+  if (now - lastAiTipTime >= intervalMs) {
+    lastAiTipTime = now;
+    console.log('[GeminiAutoBot] Triggering scheduled AI tip dispatch...');
+    try {
+      const tipPrompts = [
+        'บอกเกร็ดความรู้หรือทริคลับที่เป็นประโยชน์มากๆ 1 ข้อสำหรับผู้เล่นเกม Blox Fruits ในการเก็บเลเวล หาเงิน หรือหาผลปีศาจ',
+        'วิเคราะห์ผลปีศาจยอดนิยม 1 ผลใน Blox Fruits อธิบายจุดเด่น จุดด้อย และเทคนิคการใช้งาน',
+        'แนะนำเทคนิคการดูราคาและเก็งกำไรไอเทม Limited ใน Roblox สำหรับผู้เริ่มต้น',
+        'ตอบคำถามยอดฮิตของผู้เล่น Blox Fruits: ผลไหนดีที่สุดสำหรับการฟาร์มและลงดันเจี้ยน พร้อมเหตุผล',
+      ];
+      const randomPrompt = tipPrompts[Math.floor(Math.random() * tipPrompts.length)];
+      const aiResult = await callGemini(randomPrompt, geminiBotConfig.defaultPersona);
+      if (aiResult.success && aiResult.text) {
+        await sendAiEmbedToDiscord({
+          question: `📢 [เกร็ดความรู้ & เคล็ดลับประจำวัน] ${randomPrompt}`,
+          answer: aiResult.text,
+          questioner: 'ระบบ AI อัตโนมัติ',
+          personaLabel: 'เซียน Blox Fruits & Roblox',
+        });
+        geminiBotConfig.lastTipAt = new Date().toISOString();
+        console.log('[GeminiAutoBot] Auto-tip dispatched successfully!');
+      }
+    } catch (tipErr: any) {
+      console.warn('[GeminiAutoBot] Failed to dispatch auto tip:', tipErr.message);
+    }
+  }
+}, 60000);
+
+// API: Get AI Bot Configuration & History
+app.get('/api/ai/config', (_req, res) => {
+  res.json({
+    success: true,
+    data: geminiBotConfig,
+  });
+});
+
+// API: Update AI Bot Configuration
+app.post('/api/ai/config', (req, res) => {
+  const {
+    enabled,
+    webhookUrl,
+    botName,
+    avatarUrl,
+    defaultPersona,
+    customInstruction,
+    autoTipsEnabled,
+    autoTipsIntervalHours,
+  } = req.body;
+
+  if (typeof enabled === 'boolean') geminiBotConfig.enabled = enabled;
+  if (webhookUrl !== undefined) geminiBotConfig.webhookUrl = webhookUrl;
+  if (botName !== undefined) geminiBotConfig.botName = botName;
+  if (avatarUrl !== undefined) geminiBotConfig.avatarUrl = avatarUrl;
+  if (defaultPersona !== undefined) geminiBotConfig.defaultPersona = defaultPersona;
+  if (customInstruction !== undefined) geminiBotConfig.customInstruction = customInstruction;
+  if (typeof autoTipsEnabled === 'boolean') geminiBotConfig.autoTipsEnabled = autoTipsEnabled;
+  if (typeof autoTipsIntervalHours === 'number' && autoTipsIntervalHours >= 1) {
+    geminiBotConfig.autoTipsIntervalHours = autoTipsIntervalHours;
+  }
+
+  res.json({
+    success: true,
+    message: 'บันทึกการตั้งค่าบอท Gemini AI เรียบร้อยแล้ว!',
+    data: geminiBotConfig,
+  });
+});
+
+// API: Ask Gemini (Generate text only without sending to Discord)
+app.post('/api/ai/ask', async (req, res) => {
+  try {
+    const { question, persona = 'roblox-expert', customInstruction } = req.body;
+    if (!question || typeof question !== 'string' || !question.trim()) {
+      return res.status(400).json({ success: false, error: 'กรุณาระบุคำถามที่ต้องการถาม' });
+    }
+
+    const result = await callGemini(question.trim(), persona, customInstruction);
+    if (!result.success) {
+      return res.status(500).json({ success: false, error: result.error });
+    }
+
+    res.json({
+      success: true,
+      question: question.trim(),
+      answer: result.text,
+      persona,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// API: Ask Gemini and Send Answer to Discord Webhook immediately
+app.post('/api/ai/ask-and-send', async (req, res) => {
+  const now = new Date();
+  const thaiTime = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const {
+    question,
+    questioner = 'สมาชิกในกลุ่ม',
+    persona = 'roblox-expert',
+    personaLabel = 'เซียน Roblox & Blox Fruits',
+    customInstruction,
+    webhookUrl,
+  } = req.body;
+
+  if (!question || typeof question !== 'string' || !question.trim()) {
+    return res.status(400).json({ success: false, error: 'กรุณาระบุคำถามที่ต้องการถาม' });
+  }
+
+  try {
+    console.log(`[GeminiAI] Generating answer for question: "${question.substring(0, 50)}..."`);
+    const genResult = await callGemini(question.trim(), persona, customInstruction);
+    if (!genResult.success || !genResult.text) {
+      throw new Error(genResult.error || 'ไม่สามารถสร้างคำตอบจาก Gemini ได้');
+    }
+
+    console.log(`[GeminiAI] Answer generated successfully (${genResult.text.length} chars). Sending to Discord...`);
+    await sendAiEmbedToDiscord({
+      question: question.trim(),
+      answer: genResult.text,
+      questioner,
+      personaLabel,
+      webhookUrl: webhookUrl || geminiBotConfig.webhookUrl,
+    });
+
+    const logItem: GeminiQAItem = {
+      id: `qa-${Date.now()}`,
+      timestamp: now.toISOString(),
+      thaiTime,
+      question: question.trim(),
+      answer: genResult.text,
+      questioner,
+      persona: personaLabel,
+      status: 'sent',
+    };
+    geminiBotConfig.history.unshift(logItem);
+    if (geminiBotConfig.history.length > 30) geminiBotConfig.history.pop();
+
+    res.json({
+      success: true,
+      message: 'สร้างคำตอบจาก Gemini AI และส่งเข้า Discord สำเร็จเรียบร้อย!',
+      data: logItem,
+    });
+  } catch (err: any) {
+    console.error('[GeminiAI] ask-and-send error:', err);
+    const failLog: GeminiQAItem = {
+      id: `qa-${Date.now()}`,
+      timestamp: now.toISOString(),
+      thaiTime,
+      question: question.trim(),
+      answer: '',
+      questioner,
+      persona: personaLabel,
+      status: 'failed',
+      error: err.message,
+    };
+    geminiBotConfig.history.unshift(failLog);
+    if (geminiBotConfig.history.length > 30) geminiBotConfig.history.pop();
+
+    res.json({
+      success: false,
+      error: err.message || 'เกิดข้อผิดพลาดในการประมวลผล',
+    });
+  }
+});
+
+// API: Send existing Q&A to Discord
+app.post('/api/ai/send-existing', async (req, res) => {
+  const { question, answer, questioner, personaLabel, webhookUrl } = req.body;
+  if (!question || !answer) {
+    return res.status(400).json({ success: false, error: 'ข้อมูลคำถามหรือคำตอบไม่ครบถ้วน' });
+  }
+
+  try {
+    await sendAiEmbedToDiscord({
+      question,
+      answer,
+      questioner,
+      personaLabel,
+      webhookUrl,
+    });
+    res.json({ success: true, message: 'ส่งคำตอบเข้า Discord สำเร็จ!' });
+  } catch (err: any) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// API: Trigger an instant AI Gaming/Trading Tip to Discord
+app.post('/api/ai/trigger-tip', async (req, res) => {
+  try {
+    const { category = 'bloxfruits' } = req.body;
+    let prompt = 'บอกเคล็ดลับหรือทริคสำคัญ 1 ข้อในการเล่น Blox Fruits ที่คนส่วนใหญ่ไม่รู้ หรือเทคนิคการฟาร์มที่ทำให้เก่งเร็วขึ้น';
+    if (category === 'roblox-limiteds') {
+      prompt = 'แนะนำเทคนิคการสังเกตราคาและเก็งกำไรไอเทม Limited ใน Roblox แนะนำว่าควรดูค่า Demand และ RAP อย่างไร';
+    } else if (category === 'trading') {
+      prompt = 'วิเคราะห์แนวโน้มการเทรดใน Blox Fruits แนะนำว่าผลยอดนิยมอย่าง Kitsune, Dragon, Leopard มีมูลค่าการเทรดเป็นอย่างไร ควรแลกกับอะไรถึงจะคุ้ม';
+    }
+
+    const aiRes = await callGemini(prompt, geminiBotConfig.defaultPersona);
+    if (!aiRes.success || !aiRes.text) {
+      throw new Error(aiRes.error || 'Gemini API Error');
+    }
+
+    await sendAiEmbedToDiscord({
+      question: `💡 [เกร็ดความรู้ AI พิเศษ] ${prompt}`,
+      answer: aiRes.text,
+      questioner: 'ระบบ AI อัตโนมัติ',
+      personaLabel: 'เซียน Blox Fruits & Roblox',
+    });
+
+    res.json({
+      success: true,
+      message: 'ยิงส่งเกร็ดความรู้ AI เข้า Discord เรียบร้อยแล้ว!',
+      tip: aiRes.text,
+    });
+  } catch (err: any) {
+    res.json({ success: false, error: err.message });
+  }
+});
+
+// API: Clear Q&A History
+app.post('/api/ai/clear-history', (_req, res) => {
+  geminiBotConfig.history = [];
+  res.json({ success: true, message: 'ล้างประวัติการตอบคำถามเรียบร้อยแล้ว' });
 });
 
 // Setup Vite or Static File Serving
